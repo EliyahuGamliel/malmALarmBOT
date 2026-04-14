@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <title>ניהול הפצות - רפואה שנה ג'</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; background-color: var(--tg-theme-bg-color); color: var(--tg-theme-text-color); }
+        input, select, button { width: 100%; padding: 10px; margin-bottom: 15px; border-radius: 8px; border: 1px solid #ccc; font-size: 16px; box-sizing: border-box; }
+        button { background-color: var(--tg-theme-button-color, #2481cc); color: var(--tg-theme-button-text-color, #fff); border: none; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <h2>הפצת עדכון חדש 📢</h2>
+    <form id="broadcastForm">
+        <label>שם הקורס/אירוע:</label>
+        <input type="text" id="courseName" placeholder="למשל: קרדיולוגיה" required>
+        
+        <label>סוג האירוע:</label>
+        <select id="eventType">
+            <option value="🔴 נוכחות חובה">נוכחות חובה</option>
+            <option value="⚪ רשות">רשות</option>
+            <option value="⏳ דדליין">דדליין להגשה</option>
+        </select>
+
+        <label>שעה / תאריך:</label>
+        <input type="text" id="eventTime" placeholder="למשל: מחר ב-08:00" required>
+        
+        <button type="submit">שלח הפצה לכולם</button>
+    </form>
+
+    <script>
+        const tg = window.Telegram.WebApp;
+        tg.expand(); // פותח את האפליקציה על מסך מלא
+
+        document.getElementById('broadcastForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            // איסוף הנתונים מהטופס
+            const data = {
+                course: document.getElementById('courseName').value,
+                type: document.getElementById('eventType').value,
+                time: document.getElementById('eventTime').value
+            };
+            
+            // שליחת הנתונים בחזרה לבוט כ-JSON וסגירת החלון
+            tg.sendData(JSON.stringify(data));
+        });
+    </script>
+</body>
+</html>
