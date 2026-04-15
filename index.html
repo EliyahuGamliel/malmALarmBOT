@@ -58,17 +58,35 @@
 
     <div id="admins-section" class="content">
         <h2>ניהול נציגים</h2>
-        <form id="adminForm" style="display: flex; gap: 10px; margin-bottom: 20px;">
-            <input type="number" id="newAdminId" placeholder="Telegram ID" required style="margin-bottom: 0;">
-            <button type="submit" class="main-button" style="margin-top: 0; width: 40%; padding: 12px;">הוסף</button>
+        <form id="adminForm" style="display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap;">
+            <input type="text" id="newAdminName" placeholder="כינוי" required style="flex: 1; min-width: 100px; margin-bottom: 0; padding: 10px;">
+            <input type="number" id="newAdminId" placeholder="Telegram ID" required style="flex: 1.5; min-width: 120px; margin-bottom: 0; padding: 10px;">
+            <button type="submit" class="main-button" style="margin-top: 0; width: auto; padding: 10px 15px;">הוסף</button>
         </form>
         <div id="adminsList"></div>
-        <p style="font-size: 12px; color: var(--hint-color); text-align: center; margin-top: 20px;">
-            טיפ: שלח <b style="color:var(--text-color);">/admins</b> לבוט בטלגרם כדי לראות את הרשימה המלאה מהשרת.
-        </p>
     </div>
 
     <script>
+        // --- קליטת נתונים מהשרת בטעינה ראשונית ---
+        const urlParams = new URLSearchParams(window.location.search);
+        const serverData = urlParams.get('data');
+        
+        if (serverData) {
+            try {
+                const parsedData = JSON.parse(serverData);
+                // עדכון הזיכרון המקומי מתוך נתוני השרת שקיבלנו בלינק!
+                if (parsedData.events) {
+                    localStorage.setItem('malm_events', JSON.stringify(parsedData.events));
+                }
+                if (parsedData.admins) {
+                    localStorage.setItem('malm_admins_v2', JSON.stringify(parsedData.admins));
+                }
+                console.log("סונכרן בהצלחה מול השרת!");
+            } catch (e) {
+                console.error("שגיאה בסנכרון נתונים", e);
+            }
+        }
+
         const tg = window.Telegram.WebApp;
         tg.expand(); tg.ready();
         let currentEditingId = null;
@@ -90,7 +108,6 @@
             }
         }
 
-        // --- לוגיקת אירועים (המשך) ---
         function getSavedEvents() { return JSON.parse(localStorage.getItem('malm_events') || '[]'); }
         function renderEvents() {
             const list = document.getElementById('eventsList');
@@ -109,6 +126,7 @@
                     </div>`;
             });
         }
+        
         window.triggerEdit = function(id) {
             const ev = getSavedEvents().find(e => e.id === id);
             if(ev) {
@@ -122,18 +140,21 @@
                 switchTab('broadcast');
             }
         };
+        
         function cancelEditing() {
             currentEditingId = null; document.getElementById('broadcastForm').reset();
             document.getElementById('formTitle').innerText = 'הפצת עדכון למחזור';
             document.getElementById('submitBtn').innerText = 'שלח ותזמן';
             document.getElementById('cancelEditBtn').style.display = 'none';
         }
+        
         window.triggerDelete = function(id) {
             if(confirm('למחוק אירוע זה?')) {
                 localStorage.setItem('malm_events', JSON.stringify(getSavedEvents().filter(e => e.id !== id)));
                 renderEvents(); tg.sendData(JSON.stringify({ action: 'cancel_event', course_id: id }));
             }
         };
+        
         document.getElementById('broadcastForm').addEventListener('submit', function(e) {
             e.preventDefault();
             const course = document.getElementById('courseName').value, type = document.getElementById('eventType').value, time = document.getElementById('eventTime').value;
@@ -150,8 +171,7 @@
             }
         });
 
-        // --- לוגיקת מנהלים (חדש!) ---
-        function getSavedAdmins() { return JSON.parse(localStorage.getItem('malm_admins') || '[]'); }
+        function getSavedAdmins() { return JSON.parse(localStorage.getItem('malm_admins_v2') || '[]'); }
         function renderAdmins() {
             const list = document.getElementById('adminsList');
             const admins = getSavedAdmins();
@@ -159,23 +179,24 @@
             admins.forEach(adm => {
                 list.innerHTML += `
                     <div class="event-card" style="display:flex; justify-content:space-between; align-items:center; border-right-color: #9e9e9e; padding: 10px;">
-                        <div><strong style="font-size:14px;">נציג/ה</strong><br><span style="font-size:12px; color:var(--hint-color);">${adm}</span></div>
-                        <button class="action-btn btn-delete" style="width:auto; padding: 5px 15px;" onclick="removeAdmin('${adm}')">הסר</button>
+                        <div><strong style="font-size:15px;">${adm.name}</strong><br><span style="font-size:12px; color:var(--hint-color);">${adm.id}</span></div>
+                        <button class="action-btn btn-delete" style="width:auto; padding: 5px 15px;" onclick="removeAdmin('${adm.id}')">הסר</button>
                     </div>`;
             });
         }
         document.getElementById('adminForm').addEventListener('submit', function(e) {
             e.preventDefault();
-            const id = document.getElementById('newAdminId').value;
+            const id = document.getElementById('newAdminId').value, name = document.getElementById('newAdminName').value;
             let admins = getSavedAdmins();
-            if(!admins.includes(id)) {
-                admins.push(id); localStorage.setItem('malm_admins', JSON.stringify(admins));
-                tg.sendData(JSON.stringify({ action: 'add_admin', new_id: parseInt(id) }));
-            }
+            if(!admins.find(a => a.id === id)) {
+                admins.push({id: id, name: name}); localStorage.setItem('malm_admins_v2', JSON.stringify(admins));
+                tg.sendData(JSON.stringify({ action: 'add_admin', new_id: parseInt(id), name: name }));
+                document.getElementById('newAdminId').value = ''; document.getElementById('newAdminName').value = ''; renderAdmins();
+            } else { alert("מזהה זה כבר קיים ברשימה."); }
         });
         window.removeAdmin = function(id) {
             if(confirm('להסיר גישה לנציג זה?')) {
-                localStorage.setItem('malm_admins', JSON.stringify(getSavedAdmins().filter(a => a !== id)));
+                localStorage.setItem('malm_admins_v2', JSON.stringify(getSavedAdmins().filter(a => a.id !== id)));
                 renderAdmins(); tg.sendData(JSON.stringify({ action: 'remove_admin', admin_id: parseInt(id) }));
             }
         };
