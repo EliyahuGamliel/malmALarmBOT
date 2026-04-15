@@ -13,6 +13,7 @@
             --button-color: var(--tg-theme-button-color, #2481cc);
             --button-text: var(--tg-theme-button-text-color, #ffffff);
             --secondary-bg: var(--tg-theme-secondary-bg-color, #f4f4f5);
+            --danger-color: #e53935;
         }
 
         body {
@@ -33,17 +34,19 @@
             margin: 15px;
             border-radius: 12px;
             gap: 4px;
+            overflow-x: auto; /* מאפשר גלילה אם המסך צר */
         }
 
         .tab {
             flex: 1;
-            padding: 8px;
+            padding: 10px 5px;
             text-align: center;
-            font-size: 14px;
+            font-size: 13px;
             font-weight: 600;
             cursor: pointer;
             border-radius: 10px;
             transition: all 0.2s ease;
+            white-space: nowrap;
         }
 
         .tab.active {
@@ -77,8 +80,6 @@
             outline: none;
         }
 
-        input:focus { border-color: var(--button-color); }
-
         .main-button {
             background-color: var(--button-color);
             color: var(--button-text);
@@ -90,10 +91,32 @@
             font-weight: bold;
             cursor: pointer;
             margin-top: 10px;
-            transition: opacity 0.2s;
         }
 
-        .main-button:active { opacity: 0.8; }
+        /* עיצוב כרטיסיות האירועים */
+        .event-card {
+            background-color: var(--secondary-bg);
+            padding: 15px;
+            border-radius: 12px;
+            margin-bottom: 15px;
+            border-right: 4px solid var(--button-color);
+        }
+
+        .event-title { font-weight: bold; font-size: 16px; margin-bottom: 5px; }
+        .event-details { font-size: 14px; color: var(--hint-color); margin-bottom: 12px; }
+        
+        .delete-btn {
+            background-color: rgba(229, 57, 53, 0.1);
+            color: var(--danger-color);
+            border: 1px solid var(--danger-color);
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-weight: bold;
+            width: 100%;
+            cursor: pointer;
+        }
+
+        .empty-state { text-align: center; color: var(--hint-color); padding: 30px 0; }
 
         @keyframes fadeIn {
             from { opacity: 0; transform: translateY(10px); }
@@ -104,15 +127,16 @@
 <body>
 
     <div class="tabs">
-        <div class="tab active" onclick="switchTab('broadcast')">📢 שליחת עדכון</div>
-        <div class="tab" onclick="switchTab('admins')">👥 ניהול צוות</div>
+        <div class="tab active" onclick="switchTab('broadcast')">📢 שליחה</div>
+        <div class="tab" onclick="switchTab('manage')">🗓️ אירועים</div>
+        <div class="tab" onclick="switchTab('admins')">👥 צוות</div>
     </div>
 
     <div id="broadcast-section" class="content active">
         <h2>הפצת עדכון למחזור</h2>
         <form id="broadcastForm">
             <label>שם הקורס/אירוע</label>
-            <input type="text" id="courseName" placeholder="למשל: מבוא לקרדיולוגיה" required>
+            <input type="text" id="courseName" placeholder="למשל: קרדיולוגיה" required>
             
             <label>סוג האירוע</label>
             <select id="eventType">
@@ -124,15 +148,21 @@
             <label>תאריך ושעה מדויקים</label>
             <input type="datetime-local" id="eventTime" required>
             
-            <button type="submit" class="main-button">שלח הפצה לכולם</button>
+            <button type="submit" class="main-button">שלח ותזמן</button>
         </form>
+    </div>
+
+    <div id="manage-section" class="content">
+        <h2>אירועים מתוזמנים</h2>
+        <p style="font-size: 13px; color: var(--hint-color); margin-bottom: 20px;">
+            כאן תוכל לבטל תזכורות לאירועים שטרם התקיימו.
+        </p>
+        <div id="eventsList">
+            </div>
     </div>
 
     <div id="admins-section" class="content">
         <h2>הוספת מנהל חדש</h2>
-        <p style="font-size: 13px; color: var(--hint-color); margin-bottom: 20px;">
-            המנהל יוכל לשלוח הפצות ולהוסיף מנהלים דרך ממשק זה.
-        </p>
         <form id="adminForm">
             <label>Telegram ID של המנהל</label>
             <input type="number" id="newAdminId" placeholder="למשל: 12345678" required>
@@ -145,6 +175,7 @@
         tg.expand();
         tg.ready();
 
+        // מערכת החלפת מסכים
         function switchTab(tabName) {
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
             document.querySelectorAll('.content').forEach(c => c.classList.remove('active'));
@@ -152,24 +183,98 @@
             if (tabName === 'broadcast') {
                 document.querySelectorAll('.tab')[0].classList.add('active');
                 document.getElementById('broadcast-section').classList.add('active');
-            } else {
+            } else if (tabName === 'manage') {
                 document.querySelectorAll('.tab')[1].classList.add('active');
+                document.getElementById('manage-section').classList.add('active');
+                renderEvents(); // רענון הרשימה בכל כניסה למסך
+            } else {
+                document.querySelectorAll('.tab')[2].classList.add('active');
                 document.getElementById('admins-section').classList.add('active');
             }
         }
 
+        // --- ניהול זיכרון מקומי (LocalStorage) ---
+        function getSavedEvents() {
+            return JSON.parse(localStorage.getItem('malm_events') || '[]');
+        }
+
+        function saveEvent(course, type, timeStr) {
+            const events = getSavedEvents();
+            // ניקוי אירועי עבר (מה שעבר תאריכו נמחק מהתצוגה)
+            const futureEvents = events.filter(e => new Date(e.time) > new Date());
+            
+            futureEvents.push({
+                id: course.replace(/ /g, "_"), // יצירת ה-ID שמתאים לפייתון
+                course: course,
+                type: type,
+                time: timeStr
+            });
+            localStorage.setItem('malm_events', JSON.stringify(futureEvents));
+        }
+
+        function removeEvent(eventId) {
+            let events = getSavedEvents();
+            events = events.filter(e => e.id !== eventId);
+            localStorage.setItem('malm_events', JSON.stringify(events));
+            renderEvents(); // ציור הרשימה מחדש
+        }
+
+        // --- ציור כרטיסיות האירועים ---
+        function renderEvents() {
+            const list = document.getElementById('eventsList');
+            const events = getSavedEvents();
+            list.innerHTML = '';
+
+            // מחיקת אירועים ישנים מהתצוגה
+            const validEvents = events.filter(e => new Date(e.time) > new Date());
+            
+            if (validEvents.length === 0) {
+                list.innerHTML = '<div class="empty-state">אין אירועים פעילים כרגע</div>';
+                return;
+            }
+
+            validEvents.forEach(ev => {
+                const dateObj = new Date(ev.time);
+                const dateStr = `${dateObj.getDate()}/${dateObj.getMonth()+1} בשעה ${dateObj.getHours().toString().padStart(2, '0')}:${dateObj.getMinutes().toString().padStart(2, '0')}`;
+                
+                const card = document.createElement('div');
+                card.className = 'event-card';
+                card.innerHTML = `
+                    <div class="event-title">${ev.course}</div>
+                    <div class="event-details">${ev.type} | מועד: ${dateStr}</div>
+                    <button class="delete-btn" onclick="cancelEventTrigger('${ev.id}')">🗑️ בטל אירוע זה</button>
+                `;
+                list.appendChild(card);
+            });
+        }
+
+        // --- טיפול בטפסים ופעולות מול הבוט ---
+        
+        // 1. שמירת הפצה
         document.getElementById('broadcastForm').addEventListener('submit', function(e) {
             e.preventDefault();
-            const data = {
-                action: 'broadcast',
-                course: document.getElementById('courseName').value,
-                type: document.getElementById('eventType').value,
-                time: document.getElementById('eventTime').value
-            };
+            const course = document.getElementById('courseName').value;
+            const type = document.getElementById('eventType').value;
+            const time = document.getElementById('eventTime').value;
+
+            // שמירה לזיכרון הדפדפן
+            saveEvent(course, type, time);
+
+            // שליחה לבוט
+            const data = { action: 'broadcast', course: course, type: type, time: time };
             tg.sendData(JSON.stringify(data));
-            tg.close();
         });
 
+        // 2. ביטול הפצה
+        window.cancelEventTrigger = function(eventId) {
+            if(confirm('האם אתה בטוח שברצונך לבטל אירוע זה ואת התזכורות שלו?')) {
+                removeEvent(eventId); // מוחק מהממשק
+                const data = { action: 'cancel_event', course_id: eventId };
+                tg.sendData(JSON.stringify(data)); // שולח לפייתון את פקודת הביטול
+            }
+        };
+
+        // 3. הוספת מנהל
         document.getElementById('adminForm').addEventListener('submit', function(e) {
             e.preventDefault();
             const data = {
@@ -177,7 +282,6 @@
                 new_id: parseInt(document.getElementById('newAdminId').value)
             };
             tg.sendData(JSON.stringify(data));
-            tg.close();
         });
     </script>
 </body>
