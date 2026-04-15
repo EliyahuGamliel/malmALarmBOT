@@ -14,126 +14,47 @@
             --button-text: var(--tg-theme-button-text-color, #ffffff);
             --secondary-bg: var(--tg-theme-secondary-bg-color, #f4f4f5);
             --danger-color: #e53935;
+            --edit-color: #4CAF50;
         }
 
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            background-color: var(--bg-color);
-            color: var(--text-color);
-            margin: 0;
-            padding: 0;
-            display: flex;
-            flex-direction: column;
-            min-height: 100vh;
-        }
-
-        .tabs {
-            display: flex;
-            background-color: var(--secondary-bg);
-            padding: 4px;
-            margin: 15px;
-            border-radius: 12px;
-            gap: 4px;
-            overflow-x: auto; /* מאפשר גלילה אם המסך צר */
-        }
-
-        .tab {
-            flex: 1;
-            padding: 10px 5px;
-            text-align: center;
-            font-size: 13px;
-            font-weight: 600;
-            cursor: pointer;
-            border-radius: 10px;
-            transition: all 0.2s ease;
-            white-space: nowrap;
-        }
-
-        .tab.active {
-            background-color: var(--bg-color);
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-
-        .content {
-            padding: 0 20px;
-            display: none;
-        }
-
-        .content.active {
-            display: block;
-            animation: fadeIn 0.3s ease;
-        }
-
+        body { font-family: -apple-system, BlinkMacSystemFont, Arial, sans-serif; background-color: var(--bg-color); color: var(--text-color); margin: 0; padding: 0; display: flex; flex-direction: column; min-height: 100vh; }
+        
+        .tabs { display: flex; background-color: var(--secondary-bg); padding: 4px; margin: 15px; border-radius: 12px; gap: 4px; }
+        .tab { flex: 1; padding: 10px 5px; text-align: center; font-size: 13px; font-weight: 600; cursor: pointer; border-radius: 10px; transition: 0.2s; white-space: nowrap; }
+        .tab.active { background-color: var(--bg-color); box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        
+        .content { padding: 0 20px; display: none; }
+        .content.active { display: block; animation: fadeIn 0.3s; }
         h2 { font-size: 18px; margin-bottom: 20px; color: var(--text-color); }
         label { display: block; margin-bottom: 6px; font-size: 14px; color: var(--hint-color); font-weight: bold; }
-
-        input, select {
-            width: 100%;
-            padding: 12px;
-            margin-bottom: 20px;
-            border-radius: 10px;
-            border: 1px solid var(--hint-color);
-            background-color: var(--bg-color);
-            color: var(--text-color);
-            font-size: 16px;
-            box-sizing: border-box;
-            outline: none;
-        }
-
-        .main-button {
-            background-color: var(--button-color);
-            color: var(--button-text);
-            border: none;
-            padding: 15px;
-            border-radius: 12px;
-            width: 100%;
-            font-size: 16px;
-            font-weight: bold;
-            cursor: pointer;
-            margin-top: 10px;
-        }
-
-        /* עיצוב כרטיסיות האירועים */
-        .event-card {
-            background-color: var(--secondary-bg);
-            padding: 15px;
-            border-radius: 12px;
-            margin-bottom: 15px;
-            border-right: 4px solid var(--button-color);
-        }
-
+        
+        input, select { width: 100%; padding: 12px; margin-bottom: 20px; border-radius: 10px; border: 1px solid var(--hint-color); background-color: var(--bg-color); color: var(--text-color); font-size: 16px; box-sizing: border-box; outline: none; }
+        
+        .main-button { background-color: var(--button-color); color: var(--button-text); border: none; padding: 15px; border-radius: 12px; width: 100%; font-size: 16px; font-weight: bold; cursor: pointer; margin-top: 10px; }
+        
+        .event-card { background-color: var(--secondary-bg); padding: 15px; border-radius: 12px; margin-bottom: 15px; border-right: 4px solid var(--button-color); }
         .event-title { font-weight: bold; font-size: 16px; margin-bottom: 5px; }
         .event-details { font-size: 14px; color: var(--hint-color); margin-bottom: 12px; }
         
-        .delete-btn {
-            background-color: rgba(229, 57, 53, 0.1);
-            color: var(--danger-color);
-            border: 1px solid var(--danger-color);
-            padding: 8px 12px;
-            border-radius: 8px;
-            font-weight: bold;
-            width: 100%;
-            cursor: pointer;
-        }
-
+        .buttons-row { display: flex; gap: 10px; }
+        .action-btn { flex: 1; padding: 8px; border-radius: 8px; font-weight: bold; cursor: pointer; border: none; font-size: 13px; }
+        .btn-delete { background-color: rgba(229, 57, 53, 0.1); color: var(--danger-color); border: 1px solid var(--danger-color); }
+        .btn-edit { background-color: rgba(76, 175, 80, 0.1); color: var(--edit-color); border: 1px solid var(--edit-color); }
+        
         .empty-state { text-align: center; color: var(--hint-color); padding: 30px 0; }
-
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
     </style>
 </head>
 <body>
 
     <div class="tabs">
-        <div class="tab active" onclick="switchTab('broadcast')">📢 שליחה</div>
+        <div class="tab active" onclick="switchTab('broadcast')">📢 הפצה</div>
         <div class="tab" onclick="switchTab('manage')">🗓️ אירועים</div>
         <div class="tab" onclick="switchTab('admins')">👥 צוות</div>
     </div>
 
     <div id="broadcast-section" class="content active">
-        <h2>הפצת עדכון למחזור</h2>
+        <h2 id="formTitle">הפצת עדכון למחזור</h2>
         <form id="broadcastForm">
             <label>שם הקורס/אירוע</label>
             <input type="text" id="courseName" placeholder="למשל: קרדיולוגיה" required>
@@ -148,25 +69,21 @@
             <label>תאריך ושעה מדויקים</label>
             <input type="datetime-local" id="eventTime" required>
             
-            <button type="submit" class="main-button">שלח ותזמן</button>
+            <button type="submit" id="submitBtn" class="main-button">שלח ותזמן</button>
+            <button type="button" id="cancelEditBtn" class="main-button" style="display:none; background-color: var(--hint-color); margin-top:5px;" onclick="cancelEditing()">בטל עריכה</button>
         </form>
     </div>
 
     <div id="manage-section" class="content">
         <h2>אירועים מתוזמנים</h2>
-        <p style="font-size: 13px; color: var(--hint-color); margin-bottom: 20px;">
-            כאן תוכל לבטל תזכורות לאירועים שטרם התקיימו.
-        </p>
-        <div id="eventsList">
-            </div>
+        <div id="eventsList"></div>
     </div>
 
     <div id="admins-section" class="content">
-        <h2>הוספת מנהל חדש</h2>
+        <h2>הוספת מנהל</h2>
         <form id="adminForm">
-            <label>Telegram ID של המנהל</label>
-            <input type="number" id="newAdminId" placeholder="למשל: 12345678" required>
-            <button type="submit" class="main-button">הוסף כמנהל</button>
+            <input type="number" id="newAdminId" placeholder="Telegram ID" required>
+            <button type="submit" class="main-button">הוסף מנהל</button>
         </form>
     </div>
 
@@ -175,7 +92,8 @@
         tg.expand();
         tg.ready();
 
-        // מערכת החלפת מסכים
+        let currentEditingId = null; // משתנה גלובלי לניהול מצב עריכה
+
         function switchTab(tabName) {
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
             document.querySelectorAll('.content').forEach(c => c.classList.remove('active'));
@@ -186,102 +104,103 @@
             } else if (tabName === 'manage') {
                 document.querySelectorAll('.tab')[1].classList.add('active');
                 document.getElementById('manage-section').classList.add('active');
-                renderEvents(); // רענון הרשימה בכל כניסה למסך
+                renderEvents();
             } else {
                 document.querySelectorAll('.tab')[2].classList.add('active');
                 document.getElementById('admins-section').classList.add('active');
             }
         }
 
-        // --- ניהול זיכרון מקומי (LocalStorage) ---
-        function getSavedEvents() {
-            return JSON.parse(localStorage.getItem('malm_events') || '[]');
-        }
+        function getSavedEvents() { return JSON.parse(localStorage.getItem('malm_events') || '[]'); }
 
-        function saveEvent(course, type, timeStr) {
-            const events = getSavedEvents();
-            // ניקוי אירועי עבר (מה שעבר תאריכו נמחק מהתצוגה)
-            const futureEvents = events.filter(e => new Date(e.time) > new Date());
-            
-            futureEvents.push({
-                id: course.replace(/ /g, "_"), // יצירת ה-ID שמתאים לפייתון
-                course: course,
-                type: type,
-                time: timeStr
-            });
-            localStorage.setItem('malm_events', JSON.stringify(futureEvents));
-        }
-
-        function removeEvent(eventId) {
-            let events = getSavedEvents();
-            events = events.filter(e => e.id !== eventId);
-            localStorage.setItem('malm_events', JSON.stringify(events));
-            renderEvents(); // ציור הרשימה מחדש
-        }
-
-        // --- ציור כרטיסיות האירועים ---
         function renderEvents() {
             const list = document.getElementById('eventsList');
-            const events = getSavedEvents();
+            const events = getSavedEvents().filter(e => new Date(e.time) > new Date());
             list.innerHTML = '';
 
-            // מחיקת אירועים ישנים מהתצוגה
-            const validEvents = events.filter(e => new Date(e.time) > new Date());
-            
-            if (validEvents.length === 0) {
+            if (events.length === 0) {
                 list.innerHTML = '<div class="empty-state">אין אירועים פעילים כרגע</div>';
                 return;
             }
 
-            validEvents.forEach(ev => {
-                const dateObj = new Date(ev.time);
-                const dateStr = `${dateObj.getDate()}/${dateObj.getMonth()+1} בשעה ${dateObj.getHours().toString().padStart(2, '0')}:${dateObj.getMinutes().toString().padStart(2, '0')}`;
+            events.forEach(ev => {
+                const d = new Date(ev.time);
+                const dateStr = `${d.getDate()}/${d.getMonth()+1} - ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
                 
-                const card = document.createElement('div');
-                card.className = 'event-card';
-                card.innerHTML = `
-                    <div class="event-title">${ev.course}</div>
-                    <div class="event-details">${ev.type} | מועד: ${dateStr}</div>
-                    <button class="delete-btn" onclick="cancelEventTrigger('${ev.id}')">🗑️ בטל אירוע זה</button>
+                list.innerHTML += `
+                    <div class="event-card">
+                        <div class="event-title">${ev.course}</div>
+                        <div class="event-details">${ev.type} | מועד: ${dateStr}</div>
+                        <div class="buttons-row">
+                            <button class="action-btn btn-edit" onclick="triggerEdit('${ev.id}')">✏️ ערוך</button>
+                            <button class="action-btn btn-delete" onclick="triggerDelete('${ev.id}')">🗑️ בטל</button>
+                        </div>
+                    </div>
                 `;
-                list.appendChild(card);
             });
         }
 
-        // --- טיפול בטפסים ופעולות מול הבוט ---
-        
-        // 1. שמירת הפצה
+        // פונקציית טעינת נתונים לעריכה
+        window.triggerEdit = function(eventId) {
+            const ev = getSavedEvents().find(e => e.id === eventId);
+            if(ev) {
+                document.getElementById('courseName').value = ev.course;
+                document.getElementById('eventType').value = ev.type;
+                document.getElementById('eventTime').value = ev.time;
+                
+                currentEditingId = eventId;
+                document.getElementById('formTitle').innerText = 'עריכת אירוע קיים';
+                document.getElementById('submitBtn').innerText = '✏️ שלח עדכון לסטודנטים';
+                document.getElementById('cancelEditBtn').style.display = 'block';
+                switchTab('broadcast');
+            }
+        };
+
+        function cancelEditing() {
+            currentEditingId = null;
+            document.getElementById('broadcastForm').reset();
+            document.getElementById('formTitle').innerText = 'הפצת עדכון למחזור';
+            document.getElementById('submitBtn').innerText = 'שלח ותזמן';
+            document.getElementById('cancelEditBtn').style.display = 'none';
+        }
+
+        window.triggerDelete = function(eventId) {
+            if(confirm('למחוק אירוע זה?')) {
+                let events = getSavedEvents().filter(e => e.id !== eventId);
+                localStorage.setItem('malm_events', JSON.stringify(events));
+                renderEvents();
+                tg.sendData(JSON.stringify({ action: 'cancel_event', course_id: eventId }));
+            }
+        };
+
+        // טיפול בשליחת הטופס (יודע להבדיל בין חדש לעדכון)
         document.getElementById('broadcastForm').addEventListener('submit', function(e) {
             e.preventDefault();
             const course = document.getElementById('courseName').value;
             const type = document.getElementById('eventType').value;
             const time = document.getElementById('eventTime').value;
+            
+            let events = getSavedEvents();
 
-            // שמירה לזיכרון הדפדפן
-            saveEvent(course, type, time);
-
-            // שליחה לבוט
-            const data = { action: 'broadcast', course: course, type: type, time: time };
-            tg.sendData(JSON.stringify(data));
+            if (currentEditingId) {
+                // מחיקת הישן מהזיכרון ושמירת החדש
+                events = events.filter(e => e.id !== currentEditingId);
+                events.push({ id: course.replace(/ /g, "_"), course: course, type: type, time: time });
+                localStorage.setItem('malm_events', JSON.stringify(events));
+                
+                tg.sendData(JSON.stringify({ action: 'edit_event', old_id: currentEditingId, course: course, type: type, time: time }));
+            } else {
+                // יצירה חדשה לגמרי
+                events.push({ id: course.replace(/ /g, "_"), course: course, type: type, time: time });
+                localStorage.setItem('malm_events', JSON.stringify(events));
+                
+                tg.sendData(JSON.stringify({ action: 'broadcast', course: course, type: type, time: time }));
+            }
         });
 
-        // 2. ביטול הפצה
-        window.cancelEventTrigger = function(eventId) {
-            if(confirm('האם אתה בטוח שברצונך לבטל אירוע זה ואת התזכורות שלו?')) {
-                removeEvent(eventId); // מוחק מהממשק
-                const data = { action: 'cancel_event', course_id: eventId };
-                tg.sendData(JSON.stringify(data)); // שולח לפייתון את פקודת הביטול
-            }
-        };
-
-        // 3. הוספת מנהל
         document.getElementById('adminForm').addEventListener('submit', function(e) {
             e.preventDefault();
-            const data = {
-                action: 'add_admin',
-                new_id: parseInt(document.getElementById('newAdminId').value)
-            };
-            tg.sendData(JSON.stringify(data));
+            tg.sendData(JSON.stringify({ action: 'add_admin', new_id: parseInt(document.getElementById('newAdminId').value) }));
         });
     </script>
 </body>
