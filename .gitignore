@@ -1,3 +1,7 @@
 venv/
 users.json
 __pycache__/
+
+
+MASTER_ADMIN_ID = 534078278 # <--- החלף את זה ב-ID האמיתי שלך
+TOKEN = '8595177968:AAEwImqSp432W2GD3YkNpvkzjjQqiwvmhOI'
