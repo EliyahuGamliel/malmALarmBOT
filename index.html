@@ -29,6 +29,7 @@
 <body>
     <div class="tabs">
         <div class="tab active" onclick="switchTab('broadcast')">📢 הפצה</div>
+        <div class="tab" onclick="switchTab('general')">💬 הודעה חופשית</div>
         <div class="tab" onclick="switchTab('manage')">🗓️ אירועים</div>
         <div class="tab" onclick="switchTab('admins')">👥 צוות</div>
     </div>
@@ -48,6 +49,15 @@
             <input type="datetime-local" id="eventTime" required>
             <button type="submit" id="submitBtn" class="main-button">שלח ותזמן</button>
             <button type="button" id="cancelEditBtn" class="main-button" style="display:none; background-color: var(--hint-color); margin-top:5px;" onclick="cancelEditing()">בטל עריכה</button>
+        </form>
+    </div>
+
+    <div id="general-section" class="content">
+        <h2>הפצת הודעה למחזור</h2>
+        <form id="generalForm">
+            <label>תוכן ההודעה</label>
+            <textarea id="generalText" rows="6" required placeholder="הקלד כאן את ההודעה (ניתן לרדת שורות)..." style="width: 100%; padding: 12px; margin-bottom: 20px; border-radius: 10px; border: 1px solid var(--hint-color); background-color: var(--bg-color); color: var(--text-color); font-size: 16px; box-sizing: border-box; outline: none; font-family: inherit; resize: vertical;"></textarea>
+            <button type="submit" class="main-button" style="background-color: #9c27b0;">🚀 שלח לכל הסטודנטים</button>
         </form>
     </div>
 
@@ -97,12 +107,15 @@
             if (tabName === 'broadcast') {
                 document.querySelectorAll('.tab')[0].classList.add('active');
                 document.getElementById('broadcast-section').classList.add('active');
-            } else if (tabName === 'manage') {
+            } else if (tabName === 'general') { // --- התנאי החדש ---
                 document.querySelectorAll('.tab')[1].classList.add('active');
+                document.getElementById('general-section').classList.add('active');
+            } else if (tabName === 'manage') {
+                document.querySelectorAll('.tab')[2].classList.add('active');
                 document.getElementById('manage-section').classList.add('active');
                 renderEvents();
             } else {
-                document.querySelectorAll('.tab')[2].classList.add('active');
+                document.querySelectorAll('.tab')[3].classList.add('active');
                 document.getElementById('admins-section').classList.add('active');
                 renderAdmins();
             }
@@ -168,6 +181,16 @@
                 events.push({ id: course.replace(/ /g, "_"), course: course, type: type, time: time });
                 localStorage.setItem('malm_events', JSON.stringify(events));
                 tg.sendData(JSON.stringify({ action: 'broadcast', course: course, type: type, time: time }));
+            }
+        });
+
+        // טיפול בשליחת הודעה חופשית
+        document.getElementById('generalForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const text = document.getElementById('generalText').value;
+            if(confirm('לשגר הודעה זו לכל המחזור עכשיו?')) {
+                tg.sendData(JSON.stringify({ action: 'general_broadcast', text: text }));
+                document.getElementById('generalText').value = ''; // ניקוי התיבה
             }
         });
 

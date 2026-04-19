@@ -72,8 +72,16 @@ async def send_weekly_summary(bot):
             dt = ISRAEL_TZ.localize(datetime.fromisoformat(e['time']))
             if now < dt < next_week: weekly_mandatory.append({'course': e['course'], 'time': dt})
             
-    if not weekly_mandatory: return 
-
+    if not weekly_mandatory: 
+        empty_msg = "🎉 <b>סיכום שבועי:</b>\nאין אירועי נוכחות חובה מתוכננים לשבוע הקרוב! שבוע רגוע ומוצלח לכולם."
+        users = load_data(USERS_FILE, [])
+        for user_id in users:
+            try: 
+                await bot.send_message(chat_id=user_id, text=empty_msg, parse_mode='HTML')
+            except: 
+                continue
+        return
+    
     summary_text = "📅 <b>סיכום שבועי: אירועי חובה</b>\n\n"
     for ev in sorted(weekly_mandatory, key=lambda x: x['time']):
         summary_text += f"• <b>{ev['course']}</b>\n  יום {ev['time'].strftime('%d/%m')} בשעה {ev['time'].strftime('%H:%M')}\n\n"
@@ -157,6 +165,17 @@ async def handle_web_app_data(update: Update, context: ContextTypes.DEFAULT_TYPE
     data = json.loads(update.message.web_app_data.data)
     action = data.get('action')
 
+    # --- הבלוק החדש: הודעה חופשית ---
+    if action == 'general_broadcast':
+        text = data.get('text', '')
+        if text:
+            msg_text = f"📣 <b>הודעת תפוצה:</b>\n\n{text}"
+            # אנחנו קוראים לפונקציית ההפצה הקיימת שלנו, אבל בלי לתת לה course_id כי זה לא אירוע שצריך למחוק אח"כ
+            success = await send_formatted_broadcast(context.bot, msg_text)
+            await update.message.reply_text(f"✅ הודעת התפוצה נשלחה בהצלחה ל-{success} סטודנטים.")
+        return # עוצרים כאן כדי שלא ימשיך לבדוק שאר תנאים
+    # ---------------------------------
+
     if action in ['add_admin', 'remove_admin']:
         if user_id_str != str(MASTER_ADMIN_ID):
             await update.message.reply_text("⛔ פעולה חסומה: רק המנהל הראשי רשאי לנהל נציגים.")
@@ -225,7 +244,7 @@ async def handle_web_app_data(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 async def post_init(application):
     scheduler.start()
-    scheduler.add_job(send_weekly_summary, 'cron', day_of_week='sat', hour=21, minute=0, args=[application.bot])
+    scheduler.add_job(send_weekly_summary, 'cron', day_of_week='sun', hour=11, minute=0, args=[application.bot])
 
 if __name__ == '__main__':
     app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
