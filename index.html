@@ -15,7 +15,7 @@
         .content.active { display: block; animation: fadeIn 0.3s; }
         h2 { font-size: 18px; margin-bottom: 20px; }
         label { display: block; margin-bottom: 6px; font-size: 14px; color: var(--hint-color); font-weight: bold; }
-        input, select { width: 100%; padding: 12px; margin-bottom: 20px; border-radius: 10px; border: 1px solid var(--hint-color); background-color: var(--bg-color); color: var(--text-color); font-size: 16px; box-sizing: border-box; outline: none; }
+        input, select, textarea { width: 100%; padding: 12px; margin-bottom: 20px; border-radius: 10px; border: 1px solid var(--hint-color); background-color: var(--bg-color); color: var(--text-color); font-size: 16px; box-sizing: border-box; outline: none; font-family: inherit;}
         .main-button { background-color: var(--button-color); color: var(--button-text); border: none; padding: 15px; border-radius: 12px; width: 100%; font-size: 16px; font-weight: bold; cursor: pointer; margin-top: 10px; }
         .event-card { background-color: var(--secondary-bg); padding: 15px; border-radius: 12px; margin-bottom: 15px; border-right: 4px solid var(--button-color); }
         .buttons-row { display: flex; gap: 10px; margin-top: 10px;}
@@ -63,16 +63,20 @@
     </div>
 
     <div id="register-section" class="content">
-        <h2>פתיחת רישום לקבוצות</h2>
+        <h2>פתיחת הרשמה חדשה</h2>
         <form id="registerForm">
-            <label>שם הקורס / תרגול</label>
-            <input type="text" id="regCourseName" required placeholder="למשל: מעבדת אנטומיה">
+            <label>נושא / כותרת ההרשמה</label>
+            <input type="text" id="regCourseName" required placeholder="למשל: קבוצת ריכולים או הרשמה למעבדה">
             
-            <label>כמה קבוצות לפתוח?</label>
-            <input type="number" id="regGroupsCount" required min="1" max="20" value="4">
+            <label>כפתורים אופציונליים (הפרד בפסיק)</label>
+            <input type="text" id="regOptions" required placeholder="למשל: אני מעוניין!, אולי בפעם הבאה" value="קבוצה א, קבוצה ב, קבוצה ג">
             
             <button type="submit" class="main-button" style="background-color: #2196F3;">פתח הרשמה ושלח לכולם 🚀</button>
         </form>
+
+        <hr style="border: 1px solid var(--hint-color); opacity: 0.3; margin: 30px 0 20px 0;">
+        <h2>ניהול הרשמות פעילות</h2>
+        <div id="registrationsList"></div>
     </div>
 
     <div id="manage-section" class="content">
@@ -104,6 +108,9 @@
                 if (parsedData.admins) {
                     localStorage.setItem('malm_admins_v2', JSON.stringify(parsedData.admins));
                 }
+                if (parsedData.registrations) {
+                    localStorage.setItem('malm_regs', JSON.stringify(parsedData.registrations));
+                }
                 console.log("סונכרן בהצלחה מול השרת!");
             } catch (e) {
                 console.error("שגיאה בסנכרון נתונים", e);
@@ -114,7 +121,6 @@
         tg.expand(); tg.ready();
         let currentEditingId = null;
 
-        // הוספתי פה את הטיפול באינדקסים של הלשונית החדשה
         function switchTab(tabName) {
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
             document.querySelectorAll('.content').forEach(c => c.classList.remove('active'));
@@ -125,9 +131,10 @@
             } else if (tabName === 'general') {
                 document.querySelectorAll('.tab')[1].classList.add('active');
                 document.getElementById('general-section').classList.add('active');
-            } else if (tabName === 'register') { // התנאי החדש
+            } else if (tabName === 'register') { 
                 document.querySelectorAll('.tab')[2].classList.add('active');
                 document.getElementById('register-section').classList.add('active');
+                renderRegistrations(); // מפעיל את הרנדור כשנכנסים ללשונית
             } else if (tabName === 'manage') {
                 document.querySelectorAll('.tab')[3].classList.add('active');
                 document.getElementById('manage-section').classList.add('active');
@@ -211,22 +218,88 @@
             }
         });
 
-        // --- מאזין חדש לפתיחת הרשמה לקבוצות ---
+        // --- הטיפול ברישומים החדשים המותאמים אישית ---
         document.getElementById('registerForm').addEventListener('submit', function(e) {
             e.preventDefault();
             const course = document.getElementById('regCourseName').value;
-            const groups = document.getElementById('regGroupsCount').value;
+            const options = document.getElementById('regOptions').value;
             
-            if(confirm(`לשלוח הודעת רישום ל-${course} עם ${groups} קבוצות?`)) {
-                tg.sendData(JSON.stringify({ 
-                    action: 'create_registration', 
-                    course: course, 
-                    groups: groups 
-                }));
+            if(confirm(`לפתוח הרשמה ל: "${course}" עם הכפתורים שהגדרת?`)) {
+                tg.sendData(JSON.stringify({ action: 'create_registration', course: course, options: options }));
                 document.getElementById('regCourseName').value = '';
-                document.getElementById('regGroupsCount').value = '4'; // איפוס לברירת מחדל
+                document.getElementById('regOptions').value = 'קבוצה א, קבוצה ב, קבוצה ג'; // איפוס לברירת מחדל
             }
         });
+
+        function getSavedRegistrations() { return JSON.parse(localStorage.getItem('malm_regs') || '{}'); }
+        
+        function renderRegistrations() {
+            const list = document.getElementById('registrationsList');
+            const regs = getSavedRegistrations();
+            const regIds = Object.keys(regs);
+            
+            if(regIds.length === 0) {
+                list.innerHTML = '<div class="empty-state">אין הרשמות פעילות כרגע</div>';
+                return;
+            }
+            
+            list.innerHTML = '';
+            regIds.forEach(regId => {
+                const data = regs[regId];
+                const groupsMap = {};
+                data.options.forEach(opt => groupsMap[opt] = []); // מכין מערך ריק לכל כפתור שהוגדר
+                
+                Object.values(data.users).forEach(u => {
+                    if(!groupsMap[u.group]) groupsMap[u.group] = [];
+                    groupsMap[u.group].push(u.name);
+                });
+                
+                let html = `<div class="event-card">
+                    <div style="display:flex; justify-content:space-between; align-items:center; border-bottom: 1px solid rgba(0,0,0,0.1); padding-bottom:10px; margin-bottom:15px;">
+                        <h3 style="margin:0; color:var(--button-color);">${data.title}</h3>
+                        <button class="action-btn btn-delete" style="width:auto;" onclick="deleteRegistration('${regId}')">🗑️ סגור ומחק</button>
+                    </div>`;
+                    
+                Object.keys(groupsMap).forEach(gName => {
+                    const count = groupsMap[gName].length;
+                    html += `
+                    <div style="background:var(--bg-color); padding:12px; border-radius:8px; margin-bottom:10px; border: 1px solid rgba(0,0,0,0.1);">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                            <strong style="font-size:14px;">${gName} <span style="color:var(--button-color);">(${count} נרשמו)</span></strong>
+                            <div style="display:flex; gap:5px;">
+                                <button class="action-btn btn-edit" style="width:auto; padding:5px; font-size:11px;" onclick="manualAdd('${regId}', '${gName}')">➕ הוסף ידנית</button>
+                                <button class="action-btn" style="width:auto; padding:5px; font-size:11px; background:#e0e0e0; color:#000;" onclick="sendToGroup('${regId}', '${gName}')">✉️ הודעה</button>
+                            </div>
+                        </div>
+                        <div style="font-size:12px; color:var(--hint-color); max-height:40px; overflow-y:auto;">
+                            ${groupsMap[gName].length > 0 ? groupsMap[gName].join(', ') : 'טרם נרשמו'}
+                        </div>
+                    </div>`;
+                });
+                html += `</div>`;
+                list.innerHTML += html;
+            });
+        }
+
+        window.deleteRegistration = function(regId) {
+            if(confirm("האם אתה בטוח שברצונך למחוק את ההרשמה הזו לחלוטין? الفעולה בלתי הפיכה.")) {
+                tg.sendData(JSON.stringify({ action: 'delete_registration', reg_id: regId }));
+            }
+        }
+
+        window.manualAdd = function(regId, groupName) {
+            const name = prompt(`הכנס את השם של הסטודנט להוספה ידנית לקבוצה '${groupName}':`);
+            if(name && name.trim() !== '') {
+                tg.sendData(JSON.stringify({ action: 'manual_register', reg_id: regId, group: groupName, name: name.trim() }));
+            }
+        }
+
+        window.sendToGroup = function(regId, groupName) {
+            const text = prompt(`הודעה שתישלח למשתתפי '${groupName}' בלבד:\n(שים לב: סטודנטים שהוספו ידנית לא יקבלו את ההודעה כי אין להם חיבור למערכת)`);
+            if(text && text.trim() !== '') {
+                tg.sendData(JSON.stringify({ action: 'targeted_broadcast', reg_id: regId, group: groupName, text: text }));
+            }
+        };
 
         function getSavedAdmins() { return JSON.parse(localStorage.getItem('malm_admins_v2') || '[]'); }
         function renderAdmins() {
