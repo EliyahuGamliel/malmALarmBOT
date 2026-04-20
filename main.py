@@ -3,10 +3,10 @@ import os
 import logging
 import asyncio
 import urllib.parse
-import pytz  # <-- ייבוא ספריית אזורי הזמן
+import pytz
 from datetime import datetime, timedelta
-from telegram import Update, KeyboardButton, ReplyKeyboardMarkup, WebAppInfo, ReplyKeyboardRemove
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram import Update, KeyboardButton, ReplyKeyboardMarkup, WebAppInfo, ReplyKeyboardRemove, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes # <-- נוסף CallbackQueryHandler
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 # ================= הגדרות מערכת =================
@@ -16,13 +16,13 @@ USERS_FILE = 'users.json'
 ADMINS_FILE = 'admins.json'
 MESSAGES_FILE = 'sent_messages.json'
 EVENTS_FILE = 'events.json'
-MASTER_ADMIN_ID = 534078278 # <--- החלף את זה ב-ID האמיתי שלך
+REGISTRATIONS_FILE = 'registrations.json' # <-- קובץ רישומים חדש
+MASTER_ADMIN_ID = 534078278
 
 # הגדרת אזור זמן ישראל
 ISRAEL_TZ = pytz.timezone('Asia/Jerusalem')
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
-# עדכון המתזמן שיעבוד לפי שעון ישראל
 scheduler = AsyncIOScheduler(timezone=ISRAEL_TZ)
 
 # ================= פונקציות מסד נתונים =================
@@ -48,12 +48,34 @@ def get_admins_dict():
         save_data(ADMINS_FILE, data)
     return data
 
+def get_upcoming_schedule(days=1):
+    events = load_data(EVENTS_FILE, [])
+    now = datetime.now(ISRAEL_TZ)
+    end_time = now + timedelta(days=days)
+    
+    filtered = []
+    for e in events:
+        event_dt = ISRAEL_TZ.localize(datetime.fromisoformat(e['time']))
+        if now <= event_dt <= end_time:
+            filtered.append(e)
+            
+    if not filtered:
+        return "נקי! אין אירועים מתוכננים לטווח הזמן הזה. 🎉"
+
+    filtered.sort(key=lambda x: x['time'])
+    text = "📅 <b>הלו\"ז המעודכן:</b>\n\n"
+    for e in filtered:
+        dt = ISRAEL_TZ.localize(datetime.fromisoformat(e['time']))
+        time_str = dt.strftime('%H:%M')
+        date_str = dt.strftime('%d/%m')
+        text += f"• <b>{e['course']}</b>\n  {e['type']} | {date_str} ב-{time_str}\n\n"
+    return text
+
 def add_event_to_db(course, event_type, event_time_str):
     events = load_data(EVENTS_FILE, [])
     now = datetime.now(ISRAEL_TZ)
     valid_events = []
     for e in events:
-        # המרת הזמן מהקובץ לזמן ישראל כדי לבדוק אם עבר
         dt = ISRAEL_TZ.localize(datetime.fromisoformat(e['time']))
         if dt > now: valid_events.append(e)
         
@@ -76,10 +98,8 @@ async def send_weekly_summary(bot):
         empty_msg = "🎉 <b>סיכום שבועי:</b>\nאין אירועי נוכחות חובה מתוכננים לשבוע הקרוב! שבוע רגוע ומוצלח לכולם."
         users = load_data(USERS_FILE, [])
         for user_id in users:
-            try: 
-                await bot.send_message(chat_id=user_id, text=empty_msg, parse_mode='HTML')
-            except: 
-                continue
+            try: await bot.send_message(chat_id=user_id, text=empty_msg, parse_mode='HTML')
+            except: continue
         return
     
     summary_text = "📅 <b>סיכום שבועי: אירועי חובה</b>\n\n"
@@ -101,28 +121,88 @@ async def delete_old_messages(bot, course_id):
         del history[course_id]
         save_data(MESSAGES_FILE, history)
 
-async def send_formatted_broadcast(bot, text, course_id=None):
+# נוספה האפשרות לקבל reply_markup כדי שנוכל לשלוח כפתורים בתפוצה
+async def send_formatted_broadcast(bot, text, course_id=None, reply_markup=None):
     users = load_data(USERS_FILE, [])
     sent_details = []
+    success_count = 0 
+    
     for user_id in users:
         try:
-            msg = await bot.send_message(chat_id=user_id, text=text, parse_mode='HTML')
-            if course_id: sent_details.append({'chat_id': user_id, 'message_id': msg.message_id})
-        except: continue
+            msg = await bot.send_message(chat_id=user_id, text=text, parse_mode='HTML', reply_markup=reply_markup)
+            success_count += 1
+            if course_id: 
+                sent_details.append({'chat_id': user_id, 'message_id': msg.message_id})
+        except Exception as e: 
+            print(f"❌ לא ניתן לשלוח הודעה למשתמש {user_id}: {e}")
+            continue
+            
     if course_id and sent_details:
         history = load_data(MESSAGES_FILE, {})
         if course_id not in history: history[course_id] = []
         history[course_id].extend(sent_details)
         save_data(MESSAGES_FILE, history)
-    return len(sent_details)
+        
+    return success_count
+
+async def handle_messages(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    text = update.message.text
+    
+    if text == "📅 מה יש היום?":
+        response = get_upcoming_schedule(days=1)
+        await update.message.reply_text(response, parse_mode='HTML')
+        
+    elif text == "🗓️ לו\"ז שבועי":
+        response = get_upcoming_schedule(days=7)
+        await update.message.reply_text(response, parse_mode='HTML')
+        
+    elif text == "🔗 קישורים חשובים":
+        links_text = (
+            "🔗 <b>קישורים שימושיים למחזור:</b>\n\n"
+            "📂 <a href='https://drive.google.com/drive/u/1/folders/1A1g_caVz-94pkEbzHwIYSnQvuOqUJX6d'>הדיסק שנה ג׳</a>\n"
+            "💻 <a href='https://orbitlive.huji.ac.il/Main.aspx'>פורטל הסטודנט</a>"
+        )
+        await update.message.reply_text(links_text, parse_mode='HTML', disable_web_page_preview=True)
+
+    elif text == "👑 ניהול מערכת":
+        user_id_str = str(update.effective_user.id)
+        admins = get_admins_dict()
+        if user_id_str not in admins: return
+
+        now = datetime.now(ISRAEL_TZ)
+        raw_events = load_data(EVENTS_FILE, [])
+        valid_events = [
+            {'id': e['course'].replace(" ", "_"), 'course': e['course'], 'type': e['type'], 'time': e['time']} 
+            for e in raw_events if ISRAEL_TZ.localize(datetime.fromisoformat(e['time'])) > now
+        ]
+        
+        admins_list = [{'id': k, 'name': v} for k, v in admins.items()]
+        payload = json.dumps({"events": valid_events, "admins": admins_list})
+        safe_payload = urllib.parse.quote(payload)
+        
+        button = InlineKeyboardButton(text="⚙️ פתח פאנל ניהול", web_app=WebAppInfo(url=f"{WEB_APP_URL}?data={safe_payload}"))
+        reply_markup = InlineKeyboardMarkup([[button]])
+        await update.message.reply_text("מערכת הניהול מסונכרנת ומוכנה:", reply_markup=reply_markup)
 
 # ================= פקודות טקסט =================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
+    user_id_str = str(user_id)
     users = load_data(USERS_FILE, [])
     if user_id not in users:
         users.append(user_id); save_data(USERS_FILE, users)
-    await update.message.reply_text("👋 ברוך הבא למערכת malmALarm!")
+    
+    keyboard = [
+        [KeyboardButton("📅 מה יש היום?"), KeyboardButton("🗓️ לו\"ז שבועי")],
+        [KeyboardButton("🔗 קישורים חשובים")]
+    ]
+    
+    admins = get_admins_dict()
+    if user_id_str in admins:
+        keyboard.append([KeyboardButton("👑 ניהול מערכת")])
+        
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    await update.message.reply_text("👋 ברוך הבא למערכת malmALarm!\nהשתמש בכפתורים למטה כדי לקבל מידע מעודכן.", reply_markup=reply_markup)
 
 async def my_id_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(f"ה-ID שלך: `{update.effective_user.id}`", parse_mode='Markdown')
@@ -136,28 +216,10 @@ async def list_admins_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         text += f"{idx}. {role} <b>{name}</b> (<code>{adm_id}</code>)\n"
     await update.message.reply_text(text, parse_mode='HTML')
 
-async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if str(update.effective_user.id) not in get_admins_dict(): return
-
-    now = datetime.now(ISRAEL_TZ)
-    raw_events = load_data(EVENTS_FILE, [])
-    valid_events = [
-        {'id': e['course'].replace(" ", "_"), 'course': e['course'], 'type': e['type'], 'time': e['time']} 
-        for e in raw_events if ISRAEL_TZ.localize(datetime.fromisoformat(e['time'])) > now
-    ]
-    
-    admins_list = [{'id': k, 'name': v} for k, v in get_admins_dict().items()]
-    payload = json.dumps({"events": valid_events, "admins": admins_list})
-    safe_payload = urllib.parse.quote(payload)
-    
-    button = KeyboardButton(text="⚙️ פתח פאנל ניהול", web_app=WebAppInfo(url=f"{WEB_APP_URL}?data={safe_payload}"))
-    await update.message.reply_text("מערכת הניהול מסונכרנת ומוכנה:", reply_markup=ReplyKeyboardMarkup([[button]], resize_keyboard=True))
-
 # ================= טיפול בנתונים מהממשק =================
 async def handle_web_app_data(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id_str = str(update.effective_user.id)
     admins = get_admins_dict()
-    
     if user_id_str not in admins:
         await update.message.reply_text("⛔ גישה חסומה.", reply_markup=ReplyKeyboardRemove())
         return 
@@ -165,16 +227,37 @@ async def handle_web_app_data(update: Update, context: ContextTypes.DEFAULT_TYPE
     data = json.loads(update.message.web_app_data.data)
     action = data.get('action')
 
-    # --- הבלוק החדש: הודעה חופשית ---
+    # --- פתיחת הרשמה חדשה ---
+    if action == 'create_registration':
+        course = data.get('course', '')
+        groups_count = int(data.get('groups', 0))
+
+        if course and groups_count > 0:
+            keyboard = []
+            row = []
+            for i in range(1, groups_count + 1):
+                # הקוד שמועבר בכפתור: reg|שם הקורס|מספר הקבוצה
+                callback_data = f"reg|{course}|{i}"
+                row.append(InlineKeyboardButton(f"קבוצה {i}", callback_data=callback_data))
+                # מסדרים 2 כפתורים בשורה
+                if len(row) == 2 or i == groups_count:
+                    keyboard.append(row)
+                    row = []
+
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            msg_text = f"📋 <b>הרשמה לקבוצות: {course}</b>\n\nלחצו על הכפתור המתאים כדי להירשם:"
+            
+            success = await send_formatted_broadcast(context.bot, msg_text, reply_markup=reply_markup)
+            await update.message.reply_text(f"✅ הודעת הרישום נשלחה ל-{success} סטודנטים.")
+        return 
+
     if action == 'general_broadcast':
         text = data.get('text', '')
         if text:
             msg_text = f"📣 <b>הודעת תפוצה:</b>\n\n{text}"
-            # אנחנו קוראים לפונקציית ההפצה הקיימת שלנו, אבל בלי לתת לה course_id כי זה לא אירוע שצריך למחוק אח"כ
             success = await send_formatted_broadcast(context.bot, msg_text)
             await update.message.reply_text(f"✅ הודעת התפוצה נשלחה בהצלחה ל-{success} סטודנטים.")
-        return # עוצרים כאן כדי שלא ימשיך לבדוק שאר תנאים
-    # ---------------------------------
+        return 
 
     if action in ['add_admin', 'remove_admin']:
         if user_id_str != str(MASTER_ADMIN_ID):
@@ -214,7 +297,6 @@ async def handle_web_app_data(update: Update, context: ContextTypes.DEFAULT_TYPE
             await update.message.reply_text("🗑️ האירוע בוטל.")
 
         elif action in ['broadcast', 'edit_event']:
-            # המרת הזמן מהממשק לזמן ישראל
             event_time_naive = datetime.fromisoformat(data['time'])
             event_time = ISRAEL_TZ.localize(event_time_naive)
             
@@ -237,10 +319,35 @@ async def handle_web_app_data(update: Update, context: ContextTypes.DEFAULT_TYPE
 
             for hours in [24, 1]:
                 run_time = event_time - timedelta(hours=hours)
-                # בדיקה מול השעה הנוכחית בישראל
                 if run_time > datetime.now(ISRAEL_TZ):
                     scheduler.add_job(send_formatted_broadcast, 'date', run_date=run_time, 
                                       args=[context.bot, f"⏰ תזכורת: {course} בעוד {hours} שעות", safe_id], id=f"{safe_id}_{hours}h")
+
+# ================= טיפול בלחיצה על כפתור רישום =================
+async def handle_registration_click(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    user_id = query.from_user.id
+    user_name = query.from_user.first_name
+
+    # חילוץ הנתונים מהכפתור (reg|Course|Group)
+    parts = query.data.split("|")
+    if len(parts) == 3:
+        _, course, group_num = parts
+        
+        registrations = load_data(REGISTRATIONS_FILE, {})
+        if course not in registrations:
+            registrations[course] = {}
+            
+        # שמירת הסטודנט בקבוצה המבוקשת
+        registrations[course][str(user_id)] = {
+            "name": user_name,
+            "group": group_num,
+            "time": datetime.now(ISRAEL_TZ).strftime('%d/%m %H:%M')
+        }
+        save_data(REGISTRATIONS_FILE, registrations)
+        
+        # הקפצת חלונית אישור לסטודנט
+        await query.answer(f"✅ נרשמת בהצלחה לקבוצה {group_num} בקורס {course}!", show_alert=True)
 
 async def post_init(application):
     scheduler.start()
@@ -250,7 +357,9 @@ if __name__ == '__main__':
     app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("myid", my_id_command))
-    app.add_handler(CommandHandler("admin", admin_panel))
     app.add_handler(CommandHandler("admins", list_admins_command))
     app.add_handler(MessageHandler(filters.StatusUpdate.WEB_APP_DATA, handle_web_app_data))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_messages))
+    # מאזין חדש לכל הלחיצות על כפתורי הרישום
+    app.add_handler(CallbackQueryHandler(handle_registration_click, pattern="^reg\|"))
     app.run_polling()

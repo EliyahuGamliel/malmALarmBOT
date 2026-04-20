@@ -8,7 +8,7 @@
     <style>
         :root { --bg-color: var(--tg-theme-bg-color, #ffffff); --text-color: var(--tg-theme-text-color, #222222); --hint-color: var(--tg-theme-hint-color, #999999); --button-color: var(--tg-theme-button-color, #2481cc); --button-text: var(--tg-theme-button-text-color, #ffffff); --secondary-bg: var(--tg-theme-secondary-bg-color, #f4f4f5); --danger-color: #e53935; --edit-color: #4CAF50; }
         body { font-family: -apple-system, sans-serif; background-color: var(--bg-color); color: var(--text-color); margin: 0; padding: 0; display: flex; flex-direction: column; min-height: 100vh; }
-        .tabs { display: flex; background-color: var(--secondary-bg); padding: 4px; margin: 15px; border-radius: 12px; gap: 4px; }
+        .tabs { display: flex; background-color: var(--secondary-bg); padding: 4px; margin: 15px; border-radius: 12px; gap: 4px; overflow-x: auto; }
         .tab { flex: 1; padding: 10px 5px; text-align: center; font-size: 13px; font-weight: 600; cursor: pointer; border-radius: 10px; transition: 0.2s; white-space: nowrap; }
         .tab.active { background-color: var(--bg-color); box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
         .content { padding: 0 20px; display: none; }
@@ -30,6 +30,7 @@
     <div class="tabs">
         <div class="tab active" onclick="switchTab('broadcast')">📢 הפצה</div>
         <div class="tab" onclick="switchTab('general')">💬 הודעה חופשית</div>
+        <div class="tab" onclick="switchTab('register')">📋 רישום</div>
         <div class="tab" onclick="switchTab('manage')">🗓️ אירועים</div>
         <div class="tab" onclick="switchTab('admins')">👥 צוות</div>
     </div>
@@ -61,6 +62,19 @@
         </form>
     </div>
 
+    <div id="register-section" class="content">
+        <h2>פתיחת רישום לקבוצות</h2>
+        <form id="registerForm">
+            <label>שם הקורס / תרגול</label>
+            <input type="text" id="regCourseName" required placeholder="למשל: מעבדת אנטומיה">
+            
+            <label>כמה קבוצות לפתוח?</label>
+            <input type="number" id="regGroupsCount" required min="1" max="20" value="4">
+            
+            <button type="submit" class="main-button" style="background-color: #2196F3;">פתח הרשמה ושלח לכולם 🚀</button>
+        </form>
+    </div>
+
     <div id="manage-section" class="content">
         <h2>אירועים מתוזמנים</h2>
         <div id="eventsList"></div>
@@ -84,7 +98,6 @@
         if (serverData) {
             try {
                 const parsedData = JSON.parse(serverData);
-                // עדכון הזיכרון המקומי מתוך נתוני השרת שקיבלנו בלינק!
                 if (parsedData.events) {
                     localStorage.setItem('malm_events', JSON.stringify(parsedData.events));
                 }
@@ -101,21 +114,26 @@
         tg.expand(); tg.ready();
         let currentEditingId = null;
 
+        // הוספתי פה את הטיפול באינדקסים של הלשונית החדשה
         function switchTab(tabName) {
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
             document.querySelectorAll('.content').forEach(c => c.classList.remove('active'));
+            
             if (tabName === 'broadcast') {
                 document.querySelectorAll('.tab')[0].classList.add('active');
                 document.getElementById('broadcast-section').classList.add('active');
-            } else if (tabName === 'general') { // --- התנאי החדש ---
+            } else if (tabName === 'general') {
                 document.querySelectorAll('.tab')[1].classList.add('active');
                 document.getElementById('general-section').classList.add('active');
-            } else if (tabName === 'manage') {
+            } else if (tabName === 'register') { // התנאי החדש
                 document.querySelectorAll('.tab')[2].classList.add('active');
+                document.getElementById('register-section').classList.add('active');
+            } else if (tabName === 'manage') {
+                document.querySelectorAll('.tab')[3].classList.add('active');
                 document.getElementById('manage-section').classList.add('active');
                 renderEvents();
             } else {
-                document.querySelectorAll('.tab')[3].classList.add('active');
+                document.querySelectorAll('.tab')[4].classList.add('active');
                 document.getElementById('admins-section').classList.add('active');
                 renderAdmins();
             }
@@ -184,13 +202,29 @@
             }
         });
 
-        // טיפול בשליחת הודעה חופשית
         document.getElementById('generalForm').addEventListener('submit', function(e) {
             e.preventDefault();
             const text = document.getElementById('generalText').value;
             if(confirm('לשגר הודעה זו לכל המחזור עכשיו?')) {
                 tg.sendData(JSON.stringify({ action: 'general_broadcast', text: text }));
-                document.getElementById('generalText').value = ''; // ניקוי התיבה
+                document.getElementById('generalText').value = ''; 
+            }
+        });
+
+        // --- מאזין חדש לפתיחת הרשמה לקבוצות ---
+        document.getElementById('registerForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const course = document.getElementById('regCourseName').value;
+            const groups = document.getElementById('regGroupsCount').value;
+            
+            if(confirm(`לשלוח הודעת רישום ל-${course} עם ${groups} קבוצות?`)) {
+                tg.sendData(JSON.stringify({ 
+                    action: 'create_registration', 
+                    course: course, 
+                    groups: groups 
+                }));
+                document.getElementById('regCourseName').value = '';
+                document.getElementById('regGroupsCount').value = '4'; // איפוס לברירת מחדל
             }
         });
 
