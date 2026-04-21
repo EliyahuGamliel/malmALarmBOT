@@ -280,6 +280,19 @@ async def handle_web_app_data(update: Update, context: ContextTypes.DEFAULT_TYPE
             await update.message.reply_text("🗑️ ההרשמה נמחקה בהצלחה מהמערכת.", reply_markup=main_markup)
         return
 
+    # --- הסרת סטודנט ספציפי מקבוצה ---
+    if action == 'remove_student':
+        reg_id = data.get('reg_id')
+        student_id = str(data.get('student_id'))
+        registrations = load_data(REGISTRATIONS_FILE, {})
+
+        if reg_id in registrations and student_id in registrations[reg_id]["users"]:
+            student_name = registrations[reg_id]["users"][student_id]["name"]
+            del registrations[reg_id]["users"][student_id]
+            save_data(REGISTRATIONS_FILE, registrations)
+            await update.message.reply_text(f"🗑️ הסטודנט {student_name} הוסר מהרשימה.", reply_markup=main_markup)
+        return
+
     # --- הוספת סטודנט ידנית ---
     if action == 'manual_register':
         reg_id = data.get('reg_id')

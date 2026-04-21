@@ -261,7 +261,7 @@
 
         function getSavedRegistrations() { return JSON.parse(localStorage.getItem('malm_regs') || '{}'); }
         
-        function renderRegistrations() {
+    function renderRegistrations() {
             const list = document.getElementById('registrationsList');
             const regs = getSavedRegistrations();
             const regIds = Object.keys(regs);
@@ -277,9 +277,11 @@
                 const groupsMap = {};
                 data.options.forEach(opt => groupsMap[opt] = []); 
                 
-                Object.values(data.users).forEach(u => {
+                // שינוי: אנחנו שומרים עכשיו גם את ה-ID של הסטודנט כדי שנוכל למחוק אותו
+                Object.keys(data.users).forEach(uid => {
+                    const u = data.users[uid];
                     if(!groupsMap[u.group]) groupsMap[u.group] = [];
-                    groupsMap[u.group].push(u.name);
+                    groupsMap[u.group].push({ id: uid, name: u.name });
                 });
                 
                 let html = `<div class="event-card">
@@ -290,16 +292,26 @@
                     
                 Object.keys(groupsMap).forEach(gName => {
                     const count = groupsMap[gName].length;
+                    
+                    // שינוי: ציור תגיות שם עם כפתור מחיקה
+                    let studentsHtml = groupsMap[gName].map(student => 
+                        `<span style="display:inline-block; background:rgba(0,0,0,0.05); padding:4px 8px; border-radius:12px; margin:2px 0 2px 4px;">
+                            ${student.name} <span style="color:var(--danger-color); cursor:pointer; font-weight:bold; margin-right:6px; font-size:14px;" onclick="removeStudent('${regId}', '${student.id}', '${student.name}')">✕</span>
+                        </span>`
+                    ).join('');
+                    
+                    if (count === 0) studentsHtml = 'טרם נרשמו';
+
                     html += `
                     <div style="background:var(--bg-color); padding:12px; border-radius:8px; margin-bottom:10px; border: 1px solid rgba(0,0,0,0.1);">
-                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
                             <strong style="font-size:14px;">${gName} <span style="color:var(--button-color);">(${count} נרשמו)</span></strong>
                             <div style="display:flex; gap:5px;">
                                 <button class="action-btn btn-edit" style="width:auto; padding:5px; font-size:11px;" onclick="manualAdd('${regId}', '${gName}')">➕ הוסף ידנית</button>
                             </div>
                         </div>
-                        <div style="font-size:12px; color:var(--hint-color); max-height:40px; overflow-y:auto;">
-                            ${groupsMap[gName].length > 0 ? groupsMap[gName].join(', ') : 'טרם נרשמו'}
+                        <div style="font-size:13px; color:var(--hint-color); max-height:80px; overflow-y:auto; line-height:2;">
+                            ${studentsHtml}
                         </div>
                     </div>`;
                 });
@@ -307,6 +319,13 @@
                 list.innerHTML += html;
             });
         }
+
+        // --- הפונקציה החדשה להסרת סטודנט בודד ---
+        window.removeStudent = function(regId, studentId, studentName) {
+            if(confirm(`האם אתה בטוח שברצונך להסיר את ${studentName} מהרשימה?`)) {
+                tg.sendData(JSON.stringify({ action: 'remove_student', reg_id: regId, student_id: studentId }));
+            }
+        };
 
         window.deleteRegistration = function(regId) {
             if(confirm("האם אתה בטוח שברצונך למחוק את ההרשמה הזו לחלוטין? הפעולה בלתי הפיכה.")) {
