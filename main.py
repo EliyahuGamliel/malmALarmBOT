@@ -4,7 +4,7 @@ import logging
 import asyncio
 import urllib.parse
 import pytz
-import uuid  # <-- נוסף ליצירת מזהים קצרים לכפתורים
+import uuid
 from datetime import datetime, timedelta
 from telegram import Update, KeyboardButton, ReplyKeyboardMarkup, WebAppInfo, ReplyKeyboardRemove, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
@@ -12,7 +12,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 # ================= הגדרות מערכת =================
 TOKEN = '8595177968:AAEwImqSp432W2GD3YkNpvkzjjQqiwvmhOI'
-WEB_APP_URL = 'https://eliyahugamliel.github.io/malmALarmBOT/' 
+WEB_APP_URL = 'https://eliyahugamliel.github.io/malmALarmBOT/index.html' 
 USERS_FILE = 'users.json'
 ADMINS_FILE = 'admins.json'
 MESSAGES_FILE = 'sent_messages.json'
@@ -20,13 +20,10 @@ EVENTS_FILE = 'events.json'
 REGISTRATIONS_FILE = 'registrations.json'
 MASTER_ADMIN_ID = 534078278
 
-# הגדרת אזור זמן ישראל
 ISRAEL_TZ = pytz.timezone('Asia/Jerusalem')
-
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 scheduler = AsyncIOScheduler(timezone=ISRAEL_TZ)
 
-# ================= פונקציות מסד נתונים =================
 def load_data(filename, default_value):
     if not os.path.exists(filename):
         with open(filename, 'w') as f: json.dump(default_value, f)
@@ -49,69 +46,81 @@ def get_admins_dict():
         save_data(ADMINS_FILE, data)
     return data
 
-def get_upcoming_schedule(days=1):
+# --- שדרוג: לו"ז אישי מותאם אישית ---
+def get_upcoming_schedule(user_id, days=1):
     events = load_data(EVENTS_FILE, [])
+    registrations = load_data(REGISTRATIONS_FILE, {})
     now = datetime.now(ISRAEL_TZ)
     end_time = now + timedelta(days=days)
     
     filtered = []
     for e in events:
+        # בדיקת שייכות לקבוצה
+        target = e.get('target', 'all')
+        if target != 'all':
+            parts = target.split('|')
+            if len(parts) == 2:
+                reg_id, group_name = parts
+                user_reg = registrations.get(reg_id, {}).get("users", {}).get(str(user_id))
+                if not user_reg or user_reg['group'] != group_name:
+                    continue # הסטודנט לא בקבוצה, דלג על האירוע
+                    
         event_dt = ISRAEL_TZ.localize(datetime.fromisoformat(e['time']))
         if now <= event_dt <= end_time:
             filtered.append(e)
             
-    if not filtered:
-        return "נקי! אין אירועים מתוכננים לטווח הזמן הזה. 🎉"
+    if not filtered: return "נקי! אין אירועים מתוכננים עבורך לטווח הזמן הזה. 🎉"
 
     filtered.sort(key=lambda x: x['time'])
-    text = "📅 <b>הלו\"ז המעודכן:</b>\n\n"
+    text = "📅 <b>הלו\"ז האישי שלך:</b>\n\n"
     for e in filtered:
         dt = ISRAEL_TZ.localize(datetime.fromisoformat(e['time']))
-        time_str = dt.strftime('%H:%M')
-        date_str = dt.strftime('%d/%m')
-        text += f"• <b>{e['course']}</b>\n  {e['type']} | {date_str} ב-{time_str}\n\n"
+        text += f"• <b>{e['course']}</b>\n  {e['type']} | {dt.strftime('%d/%m')} ב-{dt.strftime('%H:%M')}\n\n"
     return text
 
-def add_event_to_db(course, event_type, event_time_str):
+def add_event_to_db(course, event_type, event_time_str, target="all"):
     events = load_data(EVENTS_FILE, [])
     now = datetime.now(ISRAEL_TZ)
-    valid_events = []
-    for e in events:
-        dt = ISRAEL_TZ.localize(datetime.fromisoformat(e['time']))
-        if dt > now: valid_events.append(e)
-        
-    valid_events.append({'course': course, 'type': event_type, 'time': event_time_str})
+    valid_events = [e for e in events if ISRAEL_TZ.localize(datetime.fromisoformat(e['time'])) > now]
+    valid_events.append({'course': course, 'type': event_type, 'time': event_time_str, 'target': target})
     save_data(EVENTS_FILE, valid_events)
 
 # ================= פונקציות הבוט המרכזיות =================
+# --- שדרוג: סיכום שבועי חכם ---
 async def send_weekly_summary(bot):
     events = load_data(EVENTS_FILE, [])
+    registrations = load_data(REGISTRATIONS_FILE, {})
+    users = load_data(USERS_FILE, [])
     now = datetime.now(ISRAEL_TZ)
     next_week = now + timedelta(days=7)
     
-    weekly_mandatory = []
-    for e in events:
-        if e['type'] == "🔴 נוכחות חובה":
-            dt = ISRAEL_TZ.localize(datetime.fromisoformat(e['time']))
-            if now < dt < next_week: weekly_mandatory.append({'course': e['course'], 'time': dt})
-            
-    if not weekly_mandatory: 
-        empty_msg = "🎉 <b>סיכום שבועי:</b>\nאין אירועי נוכחות חובה מתוכננים לשבוע הקרוב! שבוע רגוע ומוצלח לכולם."
-        users = load_data(USERS_FILE, [])
-        for user_id in users:
-            try: await bot.send_message(chat_id=user_id, text=empty_msg, parse_mode='HTML')
-            except: continue
-        return
-    
-    summary_text = "📅 <b>סיכום שבועי: אירועי חובה</b>\n\n"
-    for ev in sorted(weekly_mandatory, key=lambda x: x['time']):
-        summary_text += f"• <b>{ev['course']}</b>\n  יום {ev['time'].strftime('%d/%m')} בשעה {ev['time'].strftime('%H:%M')}\n\n"
-    summary_text += "<i>שיהיה שבוע מוצלח לכולם!</i>"
-    
-    users = load_data(USERS_FILE, [])
     for user_id in users:
+        weekly_mandatory = []
+        for e in events:
+            if e['type'] == "🔴 נוכחות חובה":
+                target = e.get('target', 'all')
+                if target != 'all':
+                    parts = target.split('|')
+                    if len(parts) == 2:
+                        reg_id, group_name = parts
+                        user_reg = registrations.get(reg_id, {}).get("users", {}).get(str(user_id))
+                        if not user_reg or user_reg['group'] != group_name:
+                            continue
+                dt = ISRAEL_TZ.localize(datetime.fromisoformat(e['time']))
+                if now < dt < next_week: 
+                    weekly_mandatory.append({'course': e['course'], 'time': dt})
+                    
+        if not weekly_mandatory: 
+            try: await bot.send_message(chat_id=user_id, text="🎉 <b>סיכום שבועי:</b>\nאין לך אירועי נוכחות חובה מתוכננים לשבוע הקרוב!", parse_mode='HTML')
+            except: pass
+            continue
+            
+        summary_text = "📅 <b>סיכום שבועי: אירועי חובה שלך</b>\n\n"
+        for ev in sorted(weekly_mandatory, key=lambda x: x['time']):
+            summary_text += f"• <b>{ev['course']}</b>\n  יום {ev['time'].strftime('%d/%m')} בשעה {ev['time'].strftime('%H:%M')}\n\n"
+        summary_text += "<i>שיהיה שבוע מוצלח!</i>"
         try: await bot.send_message(chat_id=user_id, text=summary_text, parse_mode='HTML')
-        except: continue
+        except: pass
 
 async def delete_old_messages(bot, course_id):
     history = load_data(MESSAGES_FILE, {})
@@ -122,21 +131,31 @@ async def delete_old_messages(bot, course_id):
         del history[course_id]
         save_data(MESSAGES_FILE, history)
 
-async def send_formatted_broadcast(bot, text, course_id=None, reply_markup=None):
+# --- שדרוג: שליחה לקבוצה בלבד ---
+async def send_formatted_broadcast(bot, text, course_id=None, reply_markup=None, target='all'):
     users = load_data(USERS_FILE, [])
+    registrations = load_data(REGISTRATIONS_FILE, {})
+    
+    target_users = []
+    if target == 'all':
+        target_users = users
+    else:
+        parts = target.split('|')
+        if len(parts) == 2:
+            reg_id, group_name = parts
+            for uid, info in registrations.get(reg_id, {}).get("users", {}).items():
+                if info['group'] == group_name and not uid.startswith("manual_"):
+                    target_users.append(uid)
+                    
     sent_details = []
     success_count = 0 
-    
-    for user_id in users:
+    for user_id in target_users:
         try:
             msg = await bot.send_message(chat_id=user_id, text=text, parse_mode='HTML', reply_markup=reply_markup)
             success_count += 1
-            if course_id: 
-                sent_details.append({'chat_id': user_id, 'message_id': msg.message_id})
-        except Exception as e: 
-            print(f"❌ לא ניתן לשלוח הודעה למשתמש {user_id}: {e}")
-            continue
-            
+            if course_id: sent_details.append({'chat_id': user_id, 'message_id': msg.message_id})
+        except: continue
+        
     if course_id and sent_details:
         history = load_data(MESSAGES_FILE, {})
         if course_id not in history: history[course_id] = []
@@ -147,56 +166,28 @@ async def send_formatted_broadcast(bot, text, course_id=None, reply_markup=None)
 
 async def handle_messages(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = update.message.text
+    user_id = update.effective_user.id
     
-    if text == "📅 מה יש היום?":
-        response = get_upcoming_schedule(days=1)
-        await update.message.reply_text(response, parse_mode='HTML')
-        
-    elif text == "🗓️ לו\"ז שבועי":
-        response = get_upcoming_schedule(days=7)
-        await update.message.reply_text(response, parse_mode='HTML')
-        
+    if text == "📅 מה יש היום?": await update.message.reply_text(get_upcoming_schedule(user_id, 1), parse_mode='HTML')
+    elif text == "🗓️ לו\"ז שבועי": await update.message.reply_text(get_upcoming_schedule(user_id, 7), parse_mode='HTML')
     elif text == "🔗 קישורים חשובים":
-        links_text = (
-            "🔗 <b>קישורים שימושיים למחזור:</b>\n\n"
-            "📂 <a href='https://drive.google.com/drive/u/1/folders/1A1g_caVz-94pkEbzHwIYSnQvuOqUJX6d'>הדיסק שנה ג׳</a>\n"
-            "💻 <a href='https://orbitlive.huji.ac.il/Main.aspx'>פורטל הסטודנט</a>"
-        )
-        await update.message.reply_text(links_text, parse_mode='HTML', disable_web_page_preview=True)
-
+        links = "🔗 <b>קישורים שימושיים:</b>\n📂 <a href='https://drive.google.com/drive/u/1/folders/1A1g_caVz-94pkEbzHwIYSnQvuOqUJX6d'>הדיסק שנה ג׳</a>\n💻 <a href='https://orbitlive.huji.ac.il/Main.aspx'>פורטל הסטודנט</a>"
+        await update.message.reply_text(links, parse_mode='HTML', disable_web_page_preview=True)
     elif text == "👑 ניהול מערכת":
-        user_id_str = str(update.effective_user.id)
         admins = get_admins_dict()
-        if user_id_str not in admins: return
-
+        if str(user_id) not in admins: return
         now = datetime.now(ISRAEL_TZ)
-        raw_events = load_data(EVENTS_FILE, [])
-        valid_events = [
-            {'id': e['course'].replace(" ", "_"), 'course': e['course'], 'type': e['type'], 'time': e['time']} 
-            for e in raw_events if ISRAEL_TZ.localize(datetime.fromisoformat(e['time'])) > now
-        ]
+        valid_events = [{'id': e['course'].replace(" ", "_"), 'course': e['course'], 'type': e['type'], 'time': e['time'], 'target': e.get('target', 'all')} 
+            for e in load_data(EVENTS_FILE, []) if ISRAEL_TZ.localize(datetime.fromisoformat(e['time'])) > now]
         
-        admins_list = [{'id': k, 'name': v} for k, v in admins.items()]
-        # מושכים גם את נתוני הרישום
-        registrations = load_data(REGISTRATIONS_FILE, {})
-        payload = json.dumps({"events": valid_events, "admins": admins_list, "registrations": registrations})
-        safe_payload = urllib.parse.quote(payload)
-        
-        button = KeyboardButton(text="⚙️ כניסה לפאנל הניהול", web_app=WebAppInfo(url=f"{WEB_APP_URL}?data={safe_payload}"))
-        back_button = KeyboardButton(text="🔙 חזרה לתפריט הראשי")
-        reply_markup = ReplyKeyboardMarkup([[button], [back_button]], resize_keyboard=True)
-        
-        await update.message.reply_text("הנתונים סונכרנו בהצלחה!\nלחץ על הכפתור החדש למטה כדי לפתוח את הפאנל 👇", reply_markup=reply_markup)
-
+        payload = json.dumps({"events": valid_events, "admins": [{'id': k, 'name': v} for k, v in admins.items()], "registrations": load_data(REGISTRATIONS_FILE, {})})
+        button = KeyboardButton(text="⚙️ כניסה לפאנל הניהול", web_app=WebAppInfo(url=f"{WEB_APP_URL}?data={urllib.parse.quote(payload)}"))
+        reply_markup = ReplyKeyboardMarkup([[button], [KeyboardButton("🔙 חזרה לתפריט הראשי")]], resize_keyboard=True)
+        await update.message.reply_text("הנתונים סונכרנו! לחץ למטה 👇", reply_markup=reply_markup)
     elif text == "🔙 חזרה לתפריט הראשי":
-        keyboard = [
-            [KeyboardButton("📅 מה יש היום?"), KeyboardButton("🗓️ לו\"ז שבועי")],
-            [KeyboardButton("🔗 קישורים חשובים")],
-            [KeyboardButton("👑 ניהול מערכת")]
-        ]
-        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+        reply_markup = ReplyKeyboardMarkup([["📅 מה יש היום?", "🗓️ לו\"ז שבועי"], ["🔗 קישורים חשובים"], ["👑 ניהול מערכת"]], resize_keyboard=True)
         await update.message.reply_text("חזרנו למסך הראשי.", reply_markup=reply_markup)
-
+        
 # ================= פקודות טקסט =================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
@@ -266,16 +257,18 @@ async def handle_web_app_data(update: Update, context: ContextTypes.DEFAULT_TYPE
 
             keyboard = []
             for idx, opt in enumerate(options):
-                # שומרים בכפתור השקוף רק את ה-ID הקצר ואת האינדקס כדי לחסוך תווים
                 callback_data = f"reg|{reg_id}|{idx}"
                 keyboard.append([InlineKeyboardButton(opt, callback_data=callback_data)])
+                
+            # הוספת כפתור "ביטול רישום" קבוע בתחתית
+            keyboard.append([InlineKeyboardButton("❌ ביטול רישום", callback_data=f"reg|{reg_id}|cancel")])
 
             reply_markup = InlineKeyboardMarkup(keyboard)
             msg_text = f"📋 <b>{course}</b>\n\nלחצו על הכפתור המתאים:"
             
             success = await send_formatted_broadcast(context.bot, msg_text, reply_markup=reply_markup)
             await update.message.reply_text(f"✅ הודעת הרישום נשלחה ל-{success} סטודנטים.", reply_markup=main_markup)
-        return 
+        return
 
     # --- מחיקת הרשמה ---
     if action == 'delete_registration':
@@ -305,7 +298,7 @@ async def handle_web_app_data(update: Update, context: ContextTypes.DEFAULT_TYPE
             await update.message.reply_text(f"✅ {student_name} נוסף ידנית לקבוצה '{group_name}'.", reply_markup=main_markup)
         return
 
-    # --- שליחת הודעה ממוקדת לקבוצה ---
+    # --- שליחת הודעה ממוקדת לקבוצה (דרך דאשבורד הרישומים) ---
     if action == 'targeted_broadcast':
         reg_id = data.get('reg_id')
         group = data.get('group')
@@ -332,14 +325,17 @@ async def handle_web_app_data(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text(f"✅ נשלח ל-{success_count} סטודנטים בקבוצה.", reply_markup=main_markup)
         return
 
+    # --- הפצת הודעה כללית (משודרג: תומך בקהל יעד!) ---
     if action == 'general_broadcast':
         text = data.get('text', '')
+        target = data.get('target', 'all') # <--- כאן המוח! מושך את קהל היעד שבחרת במסך
         if text:
             msg_text = f"📣 <b>הודעת תפוצה:</b>\n\n{text}"
-            success = await send_formatted_broadcast(context.bot, msg_text)
-            await update.message.reply_text(f"✅ הודעת התפוצה נשלחה בהצלחה ל-{success} סטודנטים.", reply_markup=main_markup)
+            success = await send_formatted_broadcast(context.bot, msg_text, target=target)
+            await update.message.reply_text(f"✅ ההודעה נשלחה בהצלחה ל-{success} סטודנטים.", reply_markup=main_markup)
         return 
 
+    # --- ניהול נציגים ---
     if action in ['add_admin', 'remove_admin']:
         if user_id_str != str(MASTER_ADMIN_ID):
             await update.message.reply_text("⛔ פעולה חסומה: רק המנהל הראשי רשאי לנהל נציגים.", reply_markup=main_markup)
@@ -362,8 +358,10 @@ async def handle_web_app_data(update: Update, context: ContextTypes.DEFAULT_TYPE
                 save_data(ADMINS_FILE, admins)
                 await update.message.reply_text(f"🗑️ הגישה של <b>{removed_name}</b> נשללה.", parse_mode='HTML', reply_markup=main_markup)
 
+    # --- יצירת אירועים ותזכורות (משודרג: תומך בקהל יעד!) ---
     elif action in ['broadcast', 'edit_event', 'cancel_event']:
         course = data.get('course', '')
+        target = data.get('target', 'all') # <--- מושך את קהל היעד לאירועים
         safe_id = course.replace(" ", "_")
 
         if action == 'cancel_event':
@@ -393,17 +391,17 @@ async def handle_web_app_data(update: Update, context: ContextTypes.DEFAULT_TYPE
             else:
                 prefix = "📢 <b>עדכון חדש:</b>"
 
-            add_event_to_db(course, data['type'], data['time'])
+            add_event_to_db(course, data['type'], data['time'], target)
             msg_text = f"{prefix} {course}\n📌 <b>סוג:</b> {data['type']}\n⏰ <b>מועד:</b> {event_time.strftime('%d/%m ב-%H:%M')}"
-            success = await send_formatted_broadcast(context.bot, msg_text, safe_id)
-            await update.message.reply_text(f"✅ נשלח ל-{success} סטודנטים.", reply_markup=main_markup)
+            success = await send_formatted_broadcast(context.bot, msg_text, safe_id, target=target)
+            await update.message.reply_text(f"✅ האירוע נשמר ונשלח ל-{success} סטודנטים.", reply_markup=main_markup)
 
             for hours in [24, 1]:
                 run_time = event_time - timedelta(hours=hours)
                 if run_time > datetime.now(ISRAEL_TZ):
                     scheduler.add_job(send_formatted_broadcast, 'date', run_date=run_time, 
-                                      args=[context.bot, f"⏰ תזכורת: {course} בעוד {hours} שעות", safe_id], id=f"{safe_id}_{hours}h")
-
+                                      args=[context.bot, f"⏰ תזכורת: {course} בעוד {hours} שעות", safe_id, None, target], id=f"{safe_id}_{hours}h")
+                    
 # ================= טיפול בלחיצה על כפתור רישום =================
 async def handle_registration_click(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
@@ -413,21 +411,44 @@ async def handle_registration_click(update: Update, context: ContextTypes.DEFAUL
     parts = query.data.split("|")
     if len(parts) == 3:
         _, reg_id, opt_idx = parts
-        opt_idx = int(opt_idx)
         
         registrations = load_data(REGISTRATIONS_FILE, {})
         if reg_id in registrations:
+            
+            # --- טיפול בלחיצה על "ביטול רישום" ---
+            if opt_idx == 'cancel':
+                if user_id in registrations[reg_id]["users"]:
+                    del registrations[reg_id]["users"][user_id]
+                    save_data(REGISTRATIONS_FILE, registrations)
+                    await query.answer("❌ הרישום שלך בוטל בהצלחה והוסרת מהרשימה.", show_alert=True)
+                else:
+                    await query.answer("לא היית רשום לאף קבוצה, הכל בסדר! 👍", show_alert=False)
+                return
+
+            # --- טיפול בהרשמה לקבוצה ---
+            opt_idx = int(opt_idx)
             options = registrations[reg_id]["options"]
             if opt_idx < len(options):
                 group_name = options[opt_idx]
                 
+                # בדיקה אם הסטודנט כבר רשום בדיוק לאותה קבוצה
+                existing_user = registrations[reg_id]["users"].get(user_id)
+                if existing_user and existing_user["group"] == group_name:
+                    await query.answer(f"אתה כבר רשום ל: {group_name} 😅", show_alert=False)
+                    return
+                
+                # רישום חדש (או עדכון קבוצה קיימת אם הוא בחר משהו אחר)
                 registrations[reg_id]["users"][user_id] = {
                     "name": user_name,
                     "group": group_name,
                     "time": datetime.now(ISRAEL_TZ).strftime('%d/%m %H:%M')
                 }
                 save_data(REGISTRATIONS_FILE, registrations)
-                await query.answer(f"✅ נרשמת בהצלחה ל: {group_name}!", show_alert=True)
+                
+                if existing_user:
+                    await query.answer(f"🔄 עברת בהצלחה לקבוצה: {group_name}!", show_alert=True)
+                else:
+                    await query.answer(f"✅ נרשמת בהצלחה ל: {group_name}!", show_alert=True)
             else:
                 await query.answer("שגיאה: כפתור לא תקין.", show_alert=True)
         else:

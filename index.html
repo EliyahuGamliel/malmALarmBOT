@@ -29,23 +29,28 @@
 <body>
     <div class="tabs">
         <div class="tab active" onclick="switchTab('broadcast')">📢 הפצה</div>
-        <div class="tab" onclick="switchTab('general')">💬 הודעה חופשית</div>
+        <div class="tab" onclick="switchTab('general')">💬 חופשית</div>
         <div class="tab" onclick="switchTab('register')">📋 רישום</div>
         <div class="tab" onclick="switchTab('manage')">🗓️ אירועים</div>
         <div class="tab" onclick="switchTab('admins')">👥 צוות</div>
     </div>
 
     <div id="broadcast-section" class="content active">
-        <h2 id="formTitle">הפצת עדכון למחזור</h2>
+        <h2 id="formTitle">הפצת אירוע ותזכורות</h2>
         <form id="broadcastForm">
+            <label>קהל יעד</label>
+            <select id="eventTarget"></select> 
+            
             <label>שם הקורס/אירוע</label>
             <input type="text" id="courseName" required>
+            
             <label>סוג האירוע</label>
             <select id="eventType">
                 <option value="🔴 נוכחות חובה">🔴 נוכחות חובה</option>
                 <option value="⚪ רשות">⚪ רשות</option>
                 <option value="⏳ דדליין">⏳ דדליין</option>
             </select>
+            
             <label>תאריך ושעה</label>
             <input type="datetime-local" id="eventTime" required>
             <button type="submit" id="submitBtn" class="main-button">שלח ותזמן</button>
@@ -54,11 +59,14 @@
     </div>
 
     <div id="general-section" class="content">
-        <h2>הפצת הודעה למחזור</h2>
+        <h2>הפצת הודעה כללית</h2>
         <form id="generalForm">
+            <label>קהל יעד</label>
+            <select id="generalTarget"></select>
+            
             <label>תוכן ההודעה</label>
-            <textarea id="generalText" rows="6" required placeholder="הקלד כאן את ההודעה (ניתן לרדת שורות)..." style="width: 100%; padding: 12px; margin-bottom: 20px; border-radius: 10px; border: 1px solid var(--hint-color); background-color: var(--bg-color); color: var(--text-color); font-size: 16px; box-sizing: border-box; outline: none; font-family: inherit; resize: vertical;"></textarea>
-            <button type="submit" class="main-button" style="background-color: #9c27b0;">🚀 שלח לכל הסטודנטים</button>
+            <textarea id="generalText" rows="6" required placeholder="הקלד כאן את ההודעה (ניתן לרדת שורות)..."></textarea>
+            <button type="submit" class="main-button" style="background-color: #9c27b0;">🚀 שלח הודעה</button>
         </form>
     </div>
 
@@ -95,23 +103,16 @@
     </div>
 
     <script>
-        // --- קליטת נתונים מהשרת בטעינה ראשונית ---
+        // --- קליטת נתונים מהשרת ---
         const urlParams = new URLSearchParams(window.location.search);
         const serverData = urlParams.get('data');
         
         if (serverData) {
             try {
                 const parsedData = JSON.parse(serverData);
-                if (parsedData.events) {
-                    localStorage.setItem('malm_events', JSON.stringify(parsedData.events));
-                }
-                if (parsedData.admins) {
-                    localStorage.setItem('malm_admins_v2', JSON.stringify(parsedData.admins));
-                }
-                if (parsedData.registrations) {
-                    localStorage.setItem('malm_regs', JSON.stringify(parsedData.registrations));
-                }
-                console.log("סונכרן בהצלחה מול השרת!");
+                if (parsedData.events) localStorage.setItem('malm_events', JSON.stringify(parsedData.events));
+                if (parsedData.admins) localStorage.setItem('malm_admins_v2', JSON.stringify(parsedData.admins));
+                if (parsedData.registrations) localStorage.setItem('malm_regs', JSON.stringify(parsedData.registrations));
             } catch (e) {
                 console.error("שגיאה בסנכרון נתונים", e);
             }
@@ -121,10 +122,30 @@
         tg.expand(); tg.ready();
         let currentEditingId = null;
 
+        // בניית רשימת קהלי היעד מתוך הרישומים
+        function populateTargets() {
+            const regs = JSON.parse(localStorage.getItem('malm_regs') || '{}');
+            let optionsHtml = '<option value="all">🌍 לכולם (כל המחזור)</option>';
+            
+            Object.keys(regs).forEach(regId => {
+                const data = regs[regId];
+                data.options.forEach(opt => {
+                    optionsHtml += `<option value="${regId}|${opt}">👥 ${data.title} - ${opt}</option>`;
+                });
+            });
+            
+            const eventSelect = document.getElementById('eventTarget');
+            const generalSelect = document.getElementById('generalTarget');
+            if(eventSelect) eventSelect.innerHTML = optionsHtml;
+            if(generalSelect) generalSelect.innerHTML = optionsHtml;
+        }
+
         function switchTab(tabName) {
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
             document.querySelectorAll('.content').forEach(c => c.classList.remove('active'));
             
+            populateTargets(); // ריענון קהלי היעד במעבר לשונית
+
             if (tabName === 'broadcast') {
                 document.querySelectorAll('.tab')[0].classList.add('active');
                 document.getElementById('broadcast-section').classList.add('active');
@@ -134,7 +155,7 @@
             } else if (tabName === 'register') { 
                 document.querySelectorAll('.tab')[2].classList.add('active');
                 document.getElementById('register-section').classList.add('active');
-                renderRegistrations(); // מפעיל את הרנדור כשנכנסים ללשונית
+                renderRegistrations(); 
             } else if (tabName === 'manage') {
                 document.querySelectorAll('.tab')[3].classList.add('active');
                 document.getElementById('manage-section').classList.add('active');
@@ -146,6 +167,7 @@
             }
         }
 
+        // --- אירועים ---
         function getSavedEvents() { return JSON.parse(localStorage.getItem('malm_events') || '[]'); }
         function renderEvents() {
             const list = document.getElementById('eventsList');
@@ -181,7 +203,7 @@
         
         function cancelEditing() {
             currentEditingId = null; document.getElementById('broadcastForm').reset();
-            document.getElementById('formTitle').innerText = 'הפצת עדכון למחזור';
+            document.getElementById('formTitle').innerText = 'הפצת אירוע ותזכורות';
             document.getElementById('submitBtn').innerText = 'שלח ותזמן';
             document.getElementById('cancelEditBtn').style.display = 'none';
         }
@@ -195,30 +217,36 @@
         
         document.getElementById('broadcastForm').addEventListener('submit', function(e) {
             e.preventDefault();
-            const course = document.getElementById('courseName').value, type = document.getElementById('eventType').value, time = document.getElementById('eventTime').value;
+            const target = document.getElementById('eventTarget').value;
+            const course = document.getElementById('courseName').value;
+            const type = document.getElementById('eventType').value;
+            const time = document.getElementById('eventTime').value;
+            
             let events = getSavedEvents();
             if (currentEditingId) {
                 events = events.filter(e => e.id !== currentEditingId);
-                events.push({ id: course.replace(/ /g, "_"), course: course, type: type, time: time });
+                events.push({ id: course.replace(/ /g, "_"), course: course, type: type, time: time, target: target });
                 localStorage.setItem('malm_events', JSON.stringify(events));
-                tg.sendData(JSON.stringify({ action: 'edit_event', old_id: currentEditingId, course: course, type: type, time: time }));
+                tg.sendData(JSON.stringify({ action: 'edit_event', old_id: currentEditingId, course: course, type: type, time: time, target: target }));
             } else {
-                events.push({ id: course.replace(/ /g, "_"), course: course, type: type, time: time });
+                events.push({ id: course.replace(/ /g, "_"), course: course, type: type, time: time, target: target });
                 localStorage.setItem('malm_events', JSON.stringify(events));
-                tg.sendData(JSON.stringify({ action: 'broadcast', course: course, type: type, time: time }));
+                tg.sendData(JSON.stringify({ action: 'broadcast', course: course, type: type, time: time, target: target }));
             }
         });
 
+        // --- הודעה חופשית ---
         document.getElementById('generalForm').addEventListener('submit', function(e) {
             e.preventDefault();
+            const target = document.getElementById('generalTarget').value;
             const text = document.getElementById('generalText').value;
-            if(confirm('לשגר הודעה זו לכל המחזור עכשיו?')) {
-                tg.sendData(JSON.stringify({ action: 'general_broadcast', text: text }));
+            if(confirm('לשגר הודעה זו לקהל הנבחר עכשיו?')) {
+                tg.sendData(JSON.stringify({ action: 'general_broadcast', text: text, target: target }));
                 document.getElementById('generalText').value = ''; 
             }
         });
 
-        // --- הטיפול ברישומים החדשים המותאמים אישית ---
+        // --- רישומים ---
         document.getElementById('registerForm').addEventListener('submit', function(e) {
             e.preventDefault();
             const course = document.getElementById('regCourseName').value;
@@ -227,7 +255,7 @@
             if(confirm(`לפתוח הרשמה ל: "${course}" עם הכפתורים שהגדרת?`)) {
                 tg.sendData(JSON.stringify({ action: 'create_registration', course: course, options: options }));
                 document.getElementById('regCourseName').value = '';
-                document.getElementById('regOptions').value = 'קבוצה א, קבוצה ב, קבוצה ג'; // איפוס לברירת מחדל
+                document.getElementById('regOptions').value = 'קבוצה א, קבוצה ב, קבוצה ג';
             }
         });
 
@@ -247,7 +275,7 @@
             regIds.forEach(regId => {
                 const data = regs[regId];
                 const groupsMap = {};
-                data.options.forEach(opt => groupsMap[opt] = []); // מכין מערך ריק לכל כפתור שהוגדר
+                data.options.forEach(opt => groupsMap[opt] = []); 
                 
                 Object.values(data.users).forEach(u => {
                     if(!groupsMap[u.group]) groupsMap[u.group] = [];
@@ -268,7 +296,6 @@
                             <strong style="font-size:14px;">${gName} <span style="color:var(--button-color);">(${count} נרשמו)</span></strong>
                             <div style="display:flex; gap:5px;">
                                 <button class="action-btn btn-edit" style="width:auto; padding:5px; font-size:11px;" onclick="manualAdd('${regId}', '${gName}')">➕ הוסף ידנית</button>
-                                <button class="action-btn" style="width:auto; padding:5px; font-size:11px; background:#e0e0e0; color:#000;" onclick="sendToGroup('${regId}', '${gName}')">✉️ הודעה</button>
                             </div>
                         </div>
                         <div style="font-size:12px; color:var(--hint-color); max-height:40px; overflow-y:auto;">
@@ -282,7 +309,7 @@
         }
 
         window.deleteRegistration = function(regId) {
-            if(confirm("האם אתה בטוח שברצונך למחוק את ההרשמה הזו לחלוטין? الفעולה בלתי הפיכה.")) {
+            if(confirm("האם אתה בטוח שברצונך למחוק את ההרשמה הזו לחלוטין? הפעולה בלתי הפיכה.")) {
                 tg.sendData(JSON.stringify({ action: 'delete_registration', reg_id: regId }));
             }
         }
@@ -294,13 +321,7 @@
             }
         }
 
-        window.sendToGroup = function(regId, groupName) {
-            const text = prompt(`הודעה שתישלח למשתתפי '${groupName}' בלבד:\n(שים לב: סטודנטים שהוספו ידנית לא יקבלו את ההודעה כי אין להם חיבור למערכת)`);
-            if(text && text.trim() !== '') {
-                tg.sendData(JSON.stringify({ action: 'targeted_broadcast', reg_id: regId, group: groupName, text: text }));
-            }
-        };
-
+        // --- צוות ---
         function getSavedAdmins() { return JSON.parse(localStorage.getItem('malm_admins_v2') || '[]'); }
         function renderAdmins() {
             const list = document.getElementById('adminsList');
@@ -330,6 +351,9 @@
                 renderAdmins(); tg.sendData(JSON.stringify({ action: 'remove_admin', admin_id: parseInt(id) }));
             }
         };
+
+        // איתחול ראשוני
+        populateTargets();
     </script>
 </body>
 </html>
