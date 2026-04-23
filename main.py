@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from telegram import Update, KeyboardButton, ReplyKeyboardMarkup, WebAppInfo, ReplyKeyboardRemove, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from telegram.error import RetryAfter
 
 # ================= הגדרות מערכת =================
 TOKEN = '8595177968:AAEwImqSp432W2GD3YkNpvkzjjQqiwvmhOI'
@@ -20,9 +21,23 @@ EVENTS_FILE = 'events.json'
 REGISTRATIONS_FILE = 'registrations.json'
 MASTER_ADMIN_ID = 534078278
 
+# הגדרת אזור זמן ישראל
 ISRAEL_TZ = pytz.timezone('Asia/Jerusalem')
+HEBREW_DAYS = ["שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת", "ראשון"]
+    
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 scheduler = AsyncIOScheduler(timezone=ISRAEL_TZ)
+
+def get_time_remaining_str(target_time):
+    now = datetime.now(ISRAEL_TZ)
+    diff = target_time - now
+    days = diff.days
+    hours = diff.seconds // 3600
+    
+    if days > 1: return f"בעוד {days} ימים"
+    elif days == 1: return "מחר"
+    elif days == 0 and hours > 0: return f"היום, בעוד כ-{hours} שעות"
+    else: return "ממש בקרוב (פחות משעה)"
 
 def load_data(filename, default_value):
     if not os.path.exists(filename):
@@ -46,16 +61,14 @@ def get_admins_dict():
         save_data(ADMINS_FILE, data)
     return data
 
-# --- שדרוג: לו"ז אישי מותאם אישית ---
-def get_upcoming_schedule(user_id, days=1):
+# --- שדרוג: מערכת תאריכים מתקדמת (מחליף את get_upcoming_schedule הישן) ---
+def get_schedule_by_range(user_id, start_dt, end_dt, title_prefix="הלו\"ז שלך"):
     events = load_data(EVENTS_FILE, [])
     registrations = load_data(REGISTRATIONS_FILE, {})
-    now = datetime.now(ISRAEL_TZ)
-    end_time = now + timedelta(days=days)
     
     filtered = []
     for e in events:
-        # בדיקת שייכות לקבוצה
+        # בדיקת יעד (Target) - סינון לפי קבוצות
         target = e.get('target', 'all')
         if target != 'all':
             parts = target.split('|')
@@ -63,19 +76,20 @@ def get_upcoming_schedule(user_id, days=1):
                 reg_id, group_name = parts
                 user_reg = registrations.get(reg_id, {}).get("users", {}).get(str(user_id))
                 if not user_reg or user_reg['group'] != group_name:
-                    continue # הסטודנט לא בקבוצה, דלג על האירוע
+                    continue # הסטודנט לא בקבוצה הזו, דלג על האירוע
                     
         event_dt = ISRAEL_TZ.localize(datetime.fromisoformat(e['time']))
-        if now <= event_dt <= end_time:
+        if start_dt <= event_dt <= end_dt:
             filtered.append(e)
             
-    if not filtered: return "נקי! אין אירועים מתוכננים עבורך לטווח הזמן הזה. 🎉"
+    if not filtered: return f"📭 <b>{title_prefix}:</b>\nאין אירועים מתוכננים בטווח הזה."
 
     filtered.sort(key=lambda x: x['time'])
-    text = "📅 <b>הלו\"ז האישי שלך:</b>\n\n"
+    text = f"📅 <b>{title_prefix}:</b>\n\n"
     for e in filtered:
         dt = ISRAEL_TZ.localize(datetime.fromisoformat(e['time']))
-        text += f"• <b>{e['course']}</b>\n  {e['type']} | {dt.strftime('%d/%m')} ב-{dt.strftime('%H:%M')}\n\n"
+        day_name = HEBREW_DAYS[dt.weekday()]
+        text += f"• <b>{e['course']}</b>\n  {e['type']} | יום {day_name}, {dt.strftime('%d/%m')} ב-{dt.strftime('%H:%M')}\n\n"
     return text
 
 def add_event_to_db(course, event_type, event_time_str, target="all"):
@@ -149,12 +163,27 @@ async def send_formatted_broadcast(bot, text, course_id=None, reply_markup=None,
                     
     sent_details = []
     success_count = 0 
+    
     for user_id in target_users:
-        try:
-            msg = await bot.send_message(chat_id=user_id, text=text, parse_mode='HTML', reply_markup=reply_markup)
-            success_count += 1
-            if course_id: sent_details.append({'chat_id': user_id, 'message_id': msg.message_id})
-        except: continue
+        try_count = 0
+        while try_count < 3: # נותנים לבוט 3 הזדמנויות לשלוח לכל סטודנט
+            try:
+                msg = await bot.send_message(chat_id=user_id, text=text, parse_mode='HTML', reply_markup=reply_markup)
+                success_count += 1
+                if course_id: sent_details.append({'chat_id': user_id, 'message_id': msg.message_id})
+                break # ההודעה נשלחה בהצלחה! יוצאים ממעגל הניסיונות של הסטודנט הזה
+                
+            except RetryAfter as e:
+                # טלגרם ביקשה להמתין בגלל עומס
+                await asyncio.sleep(e.retry_after + 1)
+                try_count += 1
+                
+            except Exception as e: 
+                # שגיאה אמיתית (למשל: הסטודנט חסם את הבוט) - מדלגים
+                break
+        
+        # המתנה מזערית בין כל הודעה כדי לא להקפיץ את מנגנון ההגנה של טלגרם
+        await asyncio.sleep(0.05)
         
     if course_id and sent_details:
         history = load_data(MESSAGES_FILE, {})
@@ -167,9 +196,65 @@ async def send_formatted_broadcast(bot, text, course_id=None, reply_markup=None,
 async def handle_messages(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = update.message.text
     user_id = update.effective_user.id
+    now = datetime.now(ISRAEL_TZ)
     
-    if text == "📅 מה יש היום?": await update.message.reply_text(get_upcoming_schedule(user_id, 1), parse_mode='HTML')
-    elif text == "🗓️ לו\"ז שבועי": await update.message.reply_text(get_upcoming_schedule(user_id, 7), parse_mode='HTML')
+    # חישוב יום ראשון הקרוב (תחילת שבוע נוכחי)
+    # ב-weekday של פייתון: 0=שני, 6=ראשון. אנחנו רוצים שראשון יהיה 0.
+    curr_weekday = (now.weekday() + 1) % 7 
+    start_of_this_week = (now - timedelta(days=curr_weekday)).replace(hour=0, minute=0, second=0)
+    end_of_this_week = (start_of_this_week + timedelta(days=6)).replace(hour=23, minute=59, second=59)
+
+    if text == "📅 מה יש היום?":
+        start_today = now.replace(hour=0, minute=0, second=0)
+        end_today = now.replace(hour=23, minute=59, second=59)
+        response = get_schedule_by_range(user_id, start_today, end_today, "לו\"ז להיום")
+        await update.message.reply_text(response, parse_mode='HTML')
+        
+    elif text == "🗓️ לו\"ז שבועי":
+        response = get_schedule_by_range(user_id, start_of_this_week, end_of_this_week, "לו\"ז לשבוע הנוכחי (א'-ש')")
+        await update.message.reply_text(response, parse_mode='HTML')
+
+    elif text == "⏭️ שבוע הבא":
+        start_next_week = start_of_this_week + timedelta(days=7)
+        end_next_week = start_next_week + timedelta(days=6)
+        response = get_schedule_by_range(user_id, start_next_week, end_next_week, "לו\"ז לשבוע הבא")
+        await update.message.reply_text(response, parse_mode='HTML')
+
+    elif text == "🔍 לו\"ז לפי תאריך":
+        await update.message.reply_text("שלח לי תאריך בפורמט DD/MM (לדוגמה: 15/05) ואבדוק מה מתוכנן.")
+
+    elif text == "📝 הרשמות פתוחות":
+        registrations = load_data(REGISTRATIONS_FILE, {})
+        if not registrations:
+            await update.message.reply_text("📭 כרגע אין הרשמות פתוחות לקבוצות.")
+            return
+            
+        await update.message.reply_text("📋 <b>הנה ההרשמות שפתוחות כרגע:</b>\n(ניתן ללחוץ כדי להירשם או לשנות שיבוץ)", parse_mode='HTML')
+        
+        # עובר על כל ההרשמות הקיימות ומייצר להן את הכפתורים מחדש
+        for reg_id, data in registrations.items():
+            keyboard = []
+            for idx, opt in enumerate(data["options"]):
+                callback_data = f"reg|{reg_id}|{idx}"
+                keyboard.append([InlineKeyboardButton(opt, callback_data=callback_data)])
+            
+            keyboard.append([InlineKeyboardButton("❌ ביטול רישום", callback_data=f"reg|{reg_id}|cancel")])
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            msg_text = f"📌 <b>{data['title']}</b>"
+            await update.message.reply_text(msg_text, parse_mode='HTML', reply_markup=reply_markup)
+
+    # זיהוי תאריך שהמשתמש הקליד (למשל 12/04)
+    elif "/" in text and len(text) == 5:
+        try:
+            day, month = map(int, text.split("/"))
+            search_date = now.replace(month=month, day=day, hour=0, minute=0, second=0)
+            end_search = search_date.replace(hour=23, minute=59, second=59)
+            response = get_schedule_by_range(user_id, search_date, end_search, f"לו\"ז לתאריך {text}")
+            await update.message.reply_text(response, parse_mode='HTML')
+        except:
+            await update.message.reply_text("התאריך לא תקין. נסה שוב בפורמט DD/MM.")
+    
     elif text == "🔗 קישורים חשובים":
         links = "🔗 <b>קישורים שימושיים:</b>\n📂 <a href='https://drive.google.com/drive/u/1/folders/1A1g_caVz-94pkEbzHwIYSnQvuOqUJX6d'>הדיסק שנה ג׳</a>\n💻 <a href='https://orbitlive.huji.ac.il/Main.aspx'>פורטל הסטודנט</a>"
         await update.message.reply_text(links, parse_mode='HTML', disable_web_page_preview=True)
@@ -198,7 +283,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     
     keyboard = [
         [KeyboardButton("📅 מה יש היום?"), KeyboardButton("🗓️ לו\"ז שבועי")],
-        [KeyboardButton("🔗 קישורים חשובים")]
+        [KeyboardButton("⏭️ שבוע הבא"), KeyboardButton("🔍 לו\"ז לפי תאריך")],
+        [KeyboardButton("📝 הרשמות פתוחות"), KeyboardButton("🔗 קישורים חשובים")],
+        [KeyboardButton("👑 ניהול מערכת")] # (רק למנהלים כמובן)
     ]
     
     admins = get_admins_dict()
@@ -225,10 +312,12 @@ async def handle_web_app_data(update: Update, context: ContextTypes.DEFAULT_TYPE
     user_id_str = str(update.effective_user.id)
     admins = get_admins_dict()
     
+    # --- הנה התיקון: המקלדת המעודכנת ---
     main_keyboard = [
         [KeyboardButton("📅 מה יש היום?"), KeyboardButton("🗓️ לו\"ז שבועי")],
-        [KeyboardButton("🔗 קישורים חשובים")],
-        [KeyboardButton("👑 ניהול מערכת")]
+        [KeyboardButton("⏭️ שבוע הבא"), KeyboardButton("🔍 לו\"ז לפי תאריך")],
+        [KeyboardButton("📝 הרשמות פתוחות"), KeyboardButton("🔗 קישורים חשובים")],
+        [KeyboardButton("👑 ניהול מערכת")] # (רק למנהלים כמובן)
     ]
     main_markup = ReplyKeyboardMarkup(main_keyboard, resize_keyboard=True)
 
@@ -280,6 +369,20 @@ async def handle_web_app_data(update: Update, context: ContextTypes.DEFAULT_TYPE
             await update.message.reply_text("🗑️ ההרשמה נמחקה בהצלחה מהמערכת.", reply_markup=main_markup)
         return
 
+    # --- נעילת הרשמה (הקפאה בלי למחוק את הנתונים) ---
+    if action == 'toggle_lock':
+        reg_id = data.get('reg_id')
+        registrations = load_data(REGISTRATIONS_FILE, {})
+        if reg_id in registrations:
+            current_status = registrations[reg_id].get("status", "open")
+            # הופך את המצב (מסגור לפתוח או מפתוח לסגור)
+            registrations[reg_id]["status"] = "closed" if current_status == "open" else "open"
+            save_data(REGISTRATIONS_FILE, registrations)
+            
+            state_msg = "ננעלה (סטודנטים לא יוכלו יותר להירשם)" if registrations[reg_id]["status"] == "closed" else "נפתחה מחדש"
+            await update.message.reply_text(f"🔒 ההרשמה {state_msg}.", reply_markup=main_markup)
+        return
+    
     # --- הסרת סטודנט ספציפי מקבוצה ---
     if action == 'remove_student':
         reg_id = data.get('reg_id')
@@ -405,7 +508,17 @@ async def handle_web_app_data(update: Update, context: ContextTypes.DEFAULT_TYPE
                 prefix = "📢 <b>עדכון חדש:</b>"
 
             add_event_to_db(course, data['type'], data['time'], target)
-            msg_text = f"{prefix} {course}\n📌 <b>סוג:</b> {data['type']}\n⏰ <b>מועד:</b> {event_time.strftime('%d/%m ב-%H:%M')}"
+            
+            # --- הבלוק החדש שמייצר את הטקסט המשודרג ---
+            day_name = HEBREW_DAYS[event_time.weekday()]
+            time_left = get_time_remaining_str(event_time)
+            
+            msg_text = f"{prefix} {course}\n"
+            msg_text += f"📌 <b>סוג:</b> {data['type']}\n"
+            msg_text += f"⏰ <b>מועד:</b> יום {day_name}, {event_time.strftime('%d/%m ב-%H:%M')}\n"
+            msg_text += f"⏳ <b>מתי?</b> {time_left}"
+            # ----------------------------------------
+            
             success = await send_formatted_broadcast(context.bot, msg_text, safe_id, target=target)
             await update.message.reply_text(f"✅ האירוע נשמר ונשלח ל-{success} סטודנטים.", reply_markup=main_markup)
 
@@ -427,6 +540,11 @@ async def handle_registration_click(update: Update, context: ContextTypes.DEFAUL
         
         registrations = load_data(REGISTRATIONS_FILE, {})
         if reg_id in registrations:
+            
+            # --- חסימת נעילה ---
+            if registrations[reg_id].get("status") == "closed":
+                await query.answer("ההרשמה הזו ננעלה וסגורה לשינויים כרגע 🔒", show_alert=True)
+                return
             
             # --- טיפול בלחיצה על "ביטול רישום" ---
             if opt_idx == 'cancel':

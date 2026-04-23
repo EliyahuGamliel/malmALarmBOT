@@ -262,63 +262,72 @@
         function getSavedRegistrations() { return JSON.parse(localStorage.getItem('malm_regs') || '{}'); }
         
     function renderRegistrations() {
-            const list = document.getElementById('registrationsList');
-            const regs = getSavedRegistrations();
-            const regIds = Object.keys(regs);
-            
-            if(regIds.length === 0) {
-                list.innerHTML = '<div class="empty-state">אין הרשמות פעילות כרגע</div>';
-                return;
-            }
-            
-            list.innerHTML = '';
-            regIds.forEach(regId => {
-                const data = regs[regId];
-                const groupsMap = {};
-                data.options.forEach(opt => groupsMap[opt] = []); 
-                
-                // שינוי: אנחנו שומרים עכשיו גם את ה-ID של הסטודנט כדי שנוכל למחוק אותו
-                Object.keys(data.users).forEach(uid => {
-                    const u = data.users[uid];
-                    if(!groupsMap[u.group]) groupsMap[u.group] = [];
-                    groupsMap[u.group].push({ id: uid, name: u.name });
-                });
-                
-                let html = `<div class="event-card">
-                    <div style="display:flex; justify-content:space-between; align-items:center; border-bottom: 1px solid rgba(0,0,0,0.1); padding-bottom:10px; margin-bottom:15px;">
-                        <h3 style="margin:0; color:var(--button-color);">${data.title}</h3>
-                        <button class="action-btn btn-delete" style="width:auto;" onclick="deleteRegistration('${regId}')">🗑️ סגור ומחק</button>
-                    </div>`;
-                    
-                Object.keys(groupsMap).forEach(gName => {
-                    const count = groupsMap[gName].length;
-                    
-                    // שינוי: ציור תגיות שם עם כפתור מחיקה
-                    let studentsHtml = groupsMap[gName].map(student => 
-                        `<span style="display:inline-block; background:rgba(0,0,0,0.05); padding:4px 8px; border-radius:12px; margin:2px 0 2px 4px;">
-                            ${student.name} <span style="color:var(--danger-color); cursor:pointer; font-weight:bold; margin-right:6px; font-size:14px;" onclick="removeStudent('${regId}', '${student.id}', '${student.name}')">✕</span>
-                        </span>`
-                    ).join('');
-                    
-                    if (count === 0) studentsHtml = 'טרם נרשמו';
+    const list = document.getElementById('registrationsList');
+    const regs = getSavedRegistrations();
+    const regIds = Object.keys(regs);
+    
+    if(regIds.length === 0) {
+        list.innerHTML = '<div class="empty-state">אין הרשמות פעילות כרגע</div>';
+        return;
+    }
+    
+    list.innerHTML = '';
+    regIds.forEach(regId => {
+        const data = regs[regId];
+        const groupsMap = {};
+        data.options.forEach(opt => groupsMap[opt] = []); 
+        
+        // שומרים גם את ה-ID של הסטודנט כדי שנוכל למחוק אותו ידנית (האיקס האדום)
+        Object.keys(data.users).forEach(uid => {
+            const u = data.users[uid];
+            if(!groupsMap[u.group]) groupsMap[u.group] = [];
+            groupsMap[u.group].push({ id: uid, name: u.name });
+        });
+        
+        // --- הבלוק ששולט על תצוגת הנעילה והפתיחה ---
+        let isClosed = data.status === 'closed';
+        let lockText = isClosed ? '🔓 פתח הרשמה' : '🔒 נעל הרשמה';
+        let lockBg = isClosed ? '#4CAF50' : '#ff9800'; // ירוק לפתיחה, כתום לנעילה
+        let titleStyle = isClosed ? 'color: var(--hint-color); text-decoration: line-through;' : 'color: var(--button-color);';
 
-                    html += `
-                    <div style="background:var(--bg-color); padding:12px; border-radius:8px; margin-bottom:10px; border: 1px solid rgba(0,0,0,0.1);">
-                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-                            <strong style="font-size:14px;">${gName} <span style="color:var(--button-color);">(${count} נרשמו)</span></strong>
-                            <div style="display:flex; gap:5px;">
-                                <button class="action-btn btn-edit" style="width:auto; padding:5px; font-size:11px;" onclick="manualAdd('${regId}', '${gName}')">➕ הוסף ידנית</button>
-                            </div>
-                        </div>
-                        <div style="font-size:13px; color:var(--hint-color); max-height:80px; overflow-y:auto; line-height:2;">
-                            ${studentsHtml}
-                        </div>
-                    </div>`;
-                });
-                html += `</div>`;
-                list.innerHTML += html;
-            });
-        }
+        let html = `<div class="event-card">
+            <div style="display:flex; justify-content:space-between; align-items:center; border-bottom: 1px solid rgba(0,0,0,0.1); padding-bottom:10px; margin-bottom:15px; flex-wrap:wrap; gap:10px;">
+                <h3 style="margin:0; ${titleStyle}">${data.title} ${isClosed ? '(נעולה)' : ''}</h3>
+                <div style="display:flex; gap:8px;">
+                    <button class="action-btn" style="width:auto; background-color:${lockBg}; color:white;" onclick="toggleLock('${regId}')">${lockText}</button>
+                    <button class="action-btn btn-delete" style="width:auto;" onclick="deleteRegistration('${regId}')">🗑️ מחק סופית</button>
+                </div>
+            </div>`;
+            
+        Object.keys(groupsMap).forEach(gName => {
+            const count = groupsMap[gName].length;
+            
+            // ציור תגיות שם עם כפתור מחיקה (✕)
+            let studentsHtml = groupsMap[gName].map(student => 
+                `<span style="display:inline-block; background:rgba(0,0,0,0.05); padding:4px 8px; border-radius:12px; margin:2px 0 2px 4px;">
+                    ${student.name} <span style="color:var(--danger-color); cursor:pointer; font-weight:bold; margin-right:6px; font-size:14px;" onclick="removeStudent('${regId}', '${student.id}', '${student.name}')">✕</span>
+                </span>`
+            ).join('');
+            
+            if (count === 0) studentsHtml = 'טרם נרשמו';
+
+            html += `
+            <div style="background:var(--bg-color); padding:12px; border-radius:8px; margin-bottom:10px; border: 1px solid rgba(0,0,0,0.1);">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                    <strong style="font-size:14px;">${gName} <span style="color:var(--button-color);">(${count} נרשמו)</span></strong>
+                    <div style="display:flex; gap:5px;">
+                        <button class="action-btn btn-edit" style="width:auto; padding:5px; font-size:11px;" onclick="manualAdd('${regId}', '${gName}')">➕ הוסף ידנית</button>
+                    </div>
+                </div>
+                <div style="font-size:13px; color:var(--hint-color); max-height:80px; overflow-y:auto; line-height:2;">
+                    ${studentsHtml}
+                </div>
+            </div>`;
+        });
+        html += `</div>`;
+        list.innerHTML += html;
+    });
+}
 
         // --- הפונקציה החדשה להסרת סטודנט בודד ---
         window.removeStudent = function(regId, studentId, studentName) {
@@ -339,6 +348,9 @@
                 tg.sendData(JSON.stringify({ action: 'manual_register', reg_id: regId, group: groupName, name: name.trim() }));
             }
         }
+        window.toggleLock = function(regId) {
+            tg.sendData(JSON.stringify({ action: 'toggle_lock', reg_id: regId }));
+        };
 
         // --- צוות ---
         function getSavedAdmins() { return JSON.parse(localStorage.getItem('malm_admins_v2') || '[]'); }
