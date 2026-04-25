@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
     <title>ניהול מערכת malmALarm</title>
     <style>
         :root { --bg-color: var(--tg-theme-bg-color, #ffffff); --text-color: var(--tg-theme-text-color, #222222); --hint-color: var(--tg-theme-hint-color, #999999); --button-color: var(--tg-theme-button-color, #2481cc); --button-text: var(--tg-theme-button-text-color, #ffffff); --secondary-bg: var(--tg-theme-secondary-bg-color, #f4f4f5); --danger-color: #e53935; --edit-color: #4CAF50; }
@@ -104,18 +105,33 @@
 
     <script>
         // --- קליטת נתונים מהשרת ---
+        // --- קליטת נתונים מהשרת בטעינה ראשונית (עם תמיכה בכיווץ) ---
         const urlParams = new URLSearchParams(window.location.search);
-        const serverData = urlParams.get('data');
+        const compressedData = urlParams.get('cdata');
+        const oldData = urlParams.get('data'); // גיבוי
         
-        if (serverData) {
-            try {
-                const parsedData = JSON.parse(serverData);
+        try {
+            let parsedData = null;
+            
+            if (compressedData) {
+                // פענוח הנתונים המכווצים
+                const b64 = compressedData.replace(/-/g, '+').replace(/_/g, '/');
+                const binStr = atob(b64);
+                const bytes = new Uint8Array(binStr.length);
+                for (let i = 0; i < binStr.length; i++) bytes[i] = binStr.charCodeAt(i);
+                const decompressed = pako.inflate(bytes, { to: 'string' });
+                parsedData = JSON.parse(decompressed);
+            } else if (oldData) {
+                parsedData = JSON.parse(oldData);
+            }
+
+            if (parsedData) {
                 if (parsedData.events) localStorage.setItem('malm_events', JSON.stringify(parsedData.events));
                 if (parsedData.admins) localStorage.setItem('malm_admins_v2', JSON.stringify(parsedData.admins));
                 if (parsedData.registrations) localStorage.setItem('malm_regs', JSON.stringify(parsedData.registrations));
-            } catch (e) {
-                console.error("שגיאה בסנכרון נתונים", e);
             }
+        } catch (e) {
+            console.error("שגיאה בסנכרון או חילוץ הנתונים:", e);
         }
 
         const tg = window.Telegram.WebApp;
