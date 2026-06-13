@@ -744,19 +744,25 @@ async def post_init(application):
                         )
 
 if __name__ == '__main__':
-    while True:
-        try:
-            app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
+    PORT = int(os.environ.get('PORT', 8443))
+    
+    # הלינק המעודכן ל-Render שלך
+    RENDER_URL = "https://malmalarmbot.onrender.com" 
 
-            app.add_handler(CommandHandler("start", start))
-            app.add_handler(CommandHandler("myid", my_id_command))
-            app.add_handler(CommandHandler("admins", list_admins_command))
-            app.add_handler(MessageHandler(filters.StatusUpdate.WEB_APP_DATA, handle_web_app_data))
-            app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_messages))
-            app.add_handler(CallbackQueryHandler(handle_registration_click, pattern=r"^reg\|"))
+    app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
 
-            app.run_polling(drop_pending_updates=True, poll_interval=1.0)
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("myid", my_id_command))
+    app.add_handler(CommandHandler("admins", list_admins_command))
+    app.add_handler(MessageHandler(filters.StatusUpdate.WEB_APP_DATA, handle_web_app_data))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_messages))
+    app.add_handler(CallbackQueryHandler(handle_registration_click, pattern=r"^reg\|"))
 
-        except Exception as e:
-            logging.error(f"Error: {e}")
-            time.sleep(15)
+    print("🚀 מתחיל ריצת Webhook מול Render...")
+    
+    app.run_webhook(
+        listen="0.0.0.0",
+        port=PORT,
+        secret_token="MALMALARM_SECRET_123",
+        webhook_url=f"{RENDER_URL}/{TOKEN}"
+    )
