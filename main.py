@@ -764,5 +764,6 @@ if __name__ == '__main__':
         listen="0.0.0.0",
         port=PORT,
         secret_token="MALMALARM_SECRET_123",
-        webhook_url=f"{RENDER_URL}/{TOKEN}"
+        webhook_url=f"{RENDER_URL}/{TOKEN}",
+        drop_pending_updates=True  # שורת הקסם שמוחקת את פקק התנועה!
     )
